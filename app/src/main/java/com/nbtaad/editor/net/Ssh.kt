@@ -28,8 +28,31 @@ class SshSession(host: String) : AutoCloseable {
     private val session: Session
 
     init {
+        val t0 = System.currentTimeMillis()
+        var attempt = 0
+        var connected: Session? = null
+        while (connected == null) {
+            val s = newSession(host)
+            try {
+                s.connect(8000)
+                AppLog.d("SSH", "Connected to $host (${System.currentTimeMillis() - t0} ms)")
+                connected = s
+            } catch (e: com.jcraft.jsch.JSchException) {
+                AppLog.w("SSH", "Connecting to $host failed after ${System.currentTimeMillis() - t0} ms: ${e.javaClass.simpleName}: ${e.message}")
+                if (Reach.looksUnreachable(e)) throw SshUnreachable(e.message ?: e.toString(), e)
+                // the head unit sometimes refuses a login that follows a few others closely, and takes the next one
+                val wait = authRetryDelayMs(e.message, attempt) ?: throw e
+                AppLog.i("SSH", "Trying $host again in ${wait / 1000} s…")
+                Thread.sleep(wait)
+                attempt++
+            }
+        }
+        session = connected
+    }
+
+    private fun newSession(host: String): Session {
         val jsch = JSch()
-        session = jsch.getSession(SshConfig.USER, host, SshConfig.PORT)
+        val session = jsch.getSession(SshConfig.USER, host, SshConfig.PORT)
         session.setPassword(SshConfig.PASSWORD)
         val cfg = Properties()
         cfg["StrictHostKeyChecking"] = "no"
@@ -47,15 +70,16 @@ class SshSession(host: String) : AutoCloseable {
         cfg["mac.c2s"] = macs
         session.setConfig(cfg)
         session.timeout = 15000
-        val t0 = System.currentTimeMillis()
-        try {
-            session.connect(8000)
-            AppLog.d("SSH", "Connected to $host (${System.currentTimeMillis() - t0} ms)")
-        } catch (e: com.jcraft.jsch.JSchException) {
-            AppLog.w("SSH", "Connecting to $host failed after ${System.currentTimeMillis() - t0} ms: ${e.javaClass.simpleName}: ${e.message}")
-            if (Reach.looksUnreachable(e)) throw SshUnreachable(e.message ?: e.toString(), e)
-            throw e
-        }
+        return session
+    }
+
+    companion object {
+        /** How many more times a login that was answered with "Auth fail" is tried (the password is the same every time). */
+        const val AUTH_RETRIES = 2
+
+        /** How long to wait before the next try after a failed login ([attempt]: how many were repeated already), or null: do not try again. */
+        internal fun authRetryDelayMs(message: String?, attempt: Int): Long? =
+            if (message != null && message.contains("Auth fail", ignoreCase = true) && attempt < AUTH_RETRIES) 4000L * (attempt + 1) else null
     }
 
     class Result(val out: ByteArray, val err: String, val exit: Int) {
