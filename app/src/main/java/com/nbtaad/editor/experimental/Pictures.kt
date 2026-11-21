@@ -44,7 +44,7 @@ object Pictures {
             try {
                 val bytes = raw.get(url) ?: download(ctx, url).also { raw.put(url, it) }
                 val bmp = decode(bytes, maxSide)
-                if (bmp == null) AppLog.w("Pictures", "Not a picture the phone can show: $url")
+                if (bmp == null) AppLog.w("Pictures", "Not a picture the phone can show (${bytes.size} bytes, ${Sniff.nonPicture(bytes)}): $url")
                 if (bmp != null) bitmaps.put(k, bmp)
                 bmp
             } catch (e: CancellationException) {

@@ -1,6 +1,7 @@
 package com.nbtaad.editor.addon
 
 import com.nbtaad.editor.install.Kind
+import com.nbtaad.editor.install.Names
 
 /*
  * What the app makes of a survey: a build of Sq00ky's project (the installer takes it), an add-on the app knows by its
@@ -48,6 +49,35 @@ object AddOns {
         ),
     )
 
+    private val NOTE_NAMES = Regex("""(?i)^(readme.*|license.*|licence.*|changelog.*|sha256sums.*|.*\.md)$""")
+
+    /**
+     * The files of the zip that the installer does not use: it takes only the build's own files (see [Names]), so
+     * anything else that came with them (cluster maps, scripts, programs, pictures) stays in the zip. Notes and
+     * checksum lists are not counted, nor is what is inside the plugin's own zips.
+     */
+    fun leftOut(s: Survey): List<Entry> = s.entries.filter { e ->
+        val inBuildZip = e.path.split('/').dropLast(1).any { Names.canonical(it) != null }
+        Names.canonical(e.base) == null && !Names.isContainer(e.base) && !inBuildZip && !NOTE_NAMES.matches(e.base)
+    }
+
+    private fun leftOutFacts(s: Survey): List<String> {
+        val out = leftOut(s)
+        if (out.isEmpty()) return emptyList()
+        val programs = out.count { it.kind == EntryKind.PROGRAM || it.kind == EntryKind.ELF }
+        val scripts = out.count { it.kind == EntryKind.SCRIPT }
+        val what = listOfNotNull(
+            if (programs > 0) "$programs program${if (programs == 1) "" else "s"}" else null,
+            if (scripts > 0) "$scripts script${if (scripts == 1) "" else "s"}" else null,
+        )
+        val names = out.take(5).joinToString(", ") { it.base } + if (out.size > 5) ", …" else ""
+        return listOf(
+            "${out.size} other file${if (out.size == 1) "" else "s"} in the zip " +
+                (if (out.size == 1) "is" else "are") + " not part of a build and will NOT be installed" +
+                (if (what.isNotEmpty()) " (including ${what.joinToString(" and ")})" else "") + ": $names.",
+        )
+    }
+
     fun recognize(s: Survey): Recognition {
         val facts = ArrayList<String>()
         val problems = ArrayList<String>()
@@ -72,11 +102,12 @@ object AddOns {
                     else -> "Some files of an NBT-AAD build"
                 })
                 b.version?.let { append(", version $it") }
-                append(": ${b.found.size} of ${com.nbtaad.editor.install.Names.ALL.size} files (${b.percent}%).")
+                append(": ${b.found.size} of ${Names.ALL.size} files (${b.percent}%).")
             }
             if (b.missing.isNotEmpty() && b.kind != Kind.BUILD) facts += "Not in it: ${b.missing.joinToString(", ")}."
             problems += b.problems
             facts += b.warnings
+            facts += leftOutFacts(s)
             return Recognition(
                 Match.SQ00KY_BUILD, "Files of Sq00ky's NBT-AAD", facts, problems,
                 installable = b.installable && s.refused == null,

@@ -133,6 +133,11 @@ object AiLogic {
     fun stopReason(json: String): String =
         try { Json.parse(json).asObj()?.str("stop_reason").orEmpty() } catch (_: Exception) { "" }
 
+    /** What to tell the person when an answer had no text twice in a row. */
+    fun emptyAnswerText(stopReason: String): String =
+        if (stopReason == "refusal") "Claude declined to answer about this one. Read the post and the files yourself, or try again."
+        else "Claude answered without any text. Try again."
+
     /** What went wrong, for the person, from the HTTP status and the body of the error. */
     fun errorText(status: Int, body: String): String {
         val err = try { Json.parse(body).asObj()?.get("error").asObj() } catch (_: Exception) { null }

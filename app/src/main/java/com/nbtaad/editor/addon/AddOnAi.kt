@@ -150,6 +150,9 @@ object AddOnAi {
         for ((repo, text) in readmes) {
             out.append("<readme project=\"${fence(repo)}\">\n").append(fence(cut(text, README_EACH))).append("\n</readme>\n")
         }
+        // the task comes last, after the content of others: a message that ends on the data alone sometimes got no answer
+        out.append("\nThat was the post, the file list, the scripts and the READMEs of the shared file \"${fence(s.name)}\". ")
+        out.append("Now answer in the five parts described, for this file.")
         return out.toString()
     }
 

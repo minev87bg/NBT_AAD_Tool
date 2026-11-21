@@ -129,11 +129,7 @@ internal fun InsideDialog(exp: ExperimentalController, ins: ExperimentalControll
         },
         confirmButton = {
             if (rec.installable) {
-                TextButton(onClick = {
-                    val l = ins.link
-                    exp.closeInside()
-                    exp.download(l)
-                }) { Text("GET FOR INSTALL") }
+                TextButton(onClick = { exp.installInside() }) { Text("GET FOR INSTALL") }
             }
         },
         dismissButton = { TextButton(onClick = { exp.closeInside() }) { Text("CLOSE") } },

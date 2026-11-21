@@ -228,4 +228,32 @@ class ZipSurveyTest {
         val lines = ZipSurvey.parseSums("$h  one\n${"b".repeat(64)} *two.sh\n\nnot a line\n${"C".repeat(64)}  ./three\n")
         assertEquals(listOf(h to "one", "b".repeat(64) to "two.sh", "c".repeat(64) to "three"), lines)
     }
+
+    // ---- what the installer leaves out ----
+
+    @Test
+    fun filesThatComeWithABuildButAreNotPartOfItAreSaidToBeLeftOut() {
+        val z = zipOf(
+            "nbt-aad" to elf(extra = "NBT-AAD-VERSION=v1.9.91-test\u0000"),
+            "cluster/map1.bin" to byteArrayOf(0, 1, 2, 3, 0, 0, 9, 9),
+            "cluster/apply.sh" to text("#!/bin/sh\ncp map1.bin /somewhere\n"),
+            "README.md" to text("# notes\n"),
+            "SHA256SUMS" to text("${"a".repeat(64)}  nbt-aad\n"),
+        )
+        val s = ZipSurvey.survey("cluster.zip", z)
+        assertEquals(listOf("map1.bin", "apply.sh"), AddOns.leftOut(s).map { it.base })
+        val r = AddOns.recognize(s)
+        assertEquals(Match.SQ00KY_BUILD, r.match)
+        val fact = r.facts.first { it.contains("NOT be installed") }
+        assertTrue(fact, fact.startsWith("2 other files in the zip are not part of a build"))
+        assertTrue(fact, fact.contains("1 script"))
+        assertTrue(fact, fact.contains("map1.bin, apply.sh"))
+    }
+
+    @Test
+    fun aPlainReleaseHasNothingLeftOut() {
+        val s = ZipSurvey.survey("release.zip", release())
+        assertTrue(AddOns.leftOut(s).isEmpty())
+        assertFalse(AddOns.recognize(s).facts.any { it.contains("NOT be installed") })
+    }
 }

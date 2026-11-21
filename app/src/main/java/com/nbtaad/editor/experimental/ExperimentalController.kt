@@ -94,7 +94,7 @@ class ExperimentalController(
     var downloadFor by mutableStateOf(""); private set
 
     /** What LOOK INSIDE found in a shared file: the files in it, what the app makes of them, and the AI's reading of it. */
-    class Inside(val link: FileLink, val topic: Topic, val survey: Survey, val recognition: Recognition)
+    class Inside(val link: FileLink, val topic: Topic, val file: SourceFile, val survey: Survey, val recognition: Recognition)
 
     var inside by mutableStateOf<Inside?>(null); private set
     var insideBusy by mutableStateOf(false); private set
@@ -443,7 +443,7 @@ class ExperimentalController(
                 )
                 insideAi = null
                 insideAiMessage = ""
-                inside = Inside(link, t, survey, rec)
+                inside = Inside(link, t, f, survey, rec)
                 insideMessage = ""
             } catch (e: Exception) {
                 AppLog.e("Experimental", "Looking inside ${link.name} failed", e)
@@ -453,6 +453,15 @@ class ExperimentalController(
                 insideBusy = false
             }
         }
+    }
+
+    /** GET FOR INSTALL from the window: the file that was looked at goes to the installer, without a second download. */
+    fun installInside() {
+        val ins = inside ?: return
+        if (!ins.recognition.installable) return
+        closeInside()
+        AppLog.i("Experimental", "Taking ${ins.link.name} (already downloaded) to the installer")
+        scope.launch(Dispatchers.IO) { onFile(ins.file, ins.topic, ins.link) }
     }
 
     fun closeInside() {

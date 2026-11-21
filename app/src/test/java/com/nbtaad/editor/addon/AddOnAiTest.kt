@@ -133,4 +133,19 @@ class AddOnAiTest {
         val content = root["messages"].asList()!![0].asObj()!!.str("content")
         assertEquals("<post>\nquote \" and newline\n</post>", content)
     }
+
+    @Test
+    fun theTaskComesLastAfterTheContentOfOthers() {
+        val s = survey("t/a.sh" to "#!/bin/sh\necho hi\n")
+        val m = AddOnAi.userMessage(topic("x"), emptyList(), s, AddOns.recognize(s), listOf("o/r" to "readme"))
+        assertTrue(m.endsWith("Now answer in the five parts described, for this file."))
+        assertTrue(m.indexOf("</readme>") < m.indexOf("Now answer"))
+    }
+
+    @Test
+    fun anAnswerWithoutTextIsExplainedByItsStopReason() {
+        assertTrue(com.nbtaad.editor.experimental.AiLogic.emptyAnswerText("refusal").contains("declined"))
+        assertEquals("Claude answered without any text. Try again.", com.nbtaad.editor.experimental.AiLogic.emptyAnswerText("end_turn"))
+        assertEquals("Claude answered without any text. Try again.", com.nbtaad.editor.experimental.AiLogic.emptyAnswerText(""))
+    }
 }
