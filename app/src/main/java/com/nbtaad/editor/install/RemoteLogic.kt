@@ -36,6 +36,11 @@ class UnitStatus(
     val runningVersion: String? = null,
     /** Android Auto was put on this head unit by NBTApps: [aaDir] is NBTApps' folder of the program, not /opt/aa. */
     val nbtApps: Boolean = false,
+    /**
+     * NBTApps' folders are on the other processor of the head unit (hu-omap), which this login does not see: the program
+     * and nbt-aad.env could not be looked at, only the plugin and the daemon's log. [aaDir] is a path on hu-omap.
+     */
+    val otherNode: Boolean = false,
 ) {
     val hasDaemon: Boolean get() = Names.DAEMON in files
     val hasPreviousDaemon: Boolean get() = "nbt-aad.old" in files
@@ -61,11 +66,12 @@ class UnitStatus(
         UnitStatus(
             aaDir, pluginDir, files, pluginFiles, hasOldPlugin, version, envText, envMissing,
             daemonFile = file, daemonUnreadable = file == null, runningVersion = runningVersion, nbtApps = nbtApps,
+            otherNode = otherNode,
         )
 
     /** One line for the log: where the folders are and what is in them. */
     fun describe(): String =
-        "folder $aaDir${if (nbtApps) " (installed by NBTApps)" else ""}, plugin $pluginDir, version $installedVersion${if (versionFromLog) " (from the daemon's log)" else ""}, files " +
+        "folder $aaDir${if (nbtApps) " (installed by NBTApps${if (otherNode) ", on the other processor: not seen from this login" else ""})" else ""}, plugin $pluginDir, version $installedVersion${if (versionFromLog) " (from the daemon's log)" else ""}, files " +
             files.entries.joinToString { "${it.key}(${it.value.size}${if (it.value.executable) ",exec" else ""})" } +
             ", ${pluginFiles.size} plugin files, old plugin $hasOldPlugin" +
             (daemonFile?.let { ", daemon read back ${it.size} bytes sha256 ${it.sha256.take(16)}" }
@@ -114,23 +120,56 @@ object RemoteScripts {
     // ---- the pieces of shell that the scripts are built from; each SSH command costs the slow head unit a good part of
     // a second, so a whole step (look, prepare, check, replace) is one script made of these pieces ----
 
-    private val LOCATE_PART = """
+    private val LOCATE_LOOP = """
+        loc_ad=""
+        loc_na=""
         for p in "" /net/hu-omap/fs/sda0 /net/hu-omap; do
           echo "P ¤p"
           if [ -d "¤p/opt/aa" ]; then echo "AA ¤p/opt/aa"; fi
-          if [ -e "¤p/opt/aa/nbt-aad" ]; then echo "AD ¤p/opt/aa"; fi
+          if [ -e "¤p/opt/aa/nbt-aad" ]; then echo "AD ¤p/opt/aa"; loc_ad=1; fi
           if [ -d "¤p/$PLUGIN_SUBPATH" ]; then echo "PL ¤p/$PLUGIN_SUBPATH"; fi
           if [ -d "¤p/var/opt/aa" ]; then echo "VA ¤p/var/opt/aa"; fi
-          if [ -d "¤p/var/opt/nbtapp/apps/$NBTAPPS_ID" ]; then echo "NA ¤p/var/opt/nbtapp/apps/$NBTAPPS_ID"; fi
+          if [ -d "¤p/var/opt/nbtapp/apps/$NBTAPPS_ID" ]; then echo "NA ¤p/var/opt/nbtapp/apps/$NBTAPPS_ID"; loc_na=1; fi
           if [ -d "¤p/var/opt/nbtapp/data/$NBTAPPS_ID" ]; then echo "ND ¤p/var/opt/nbtapp/data/$NBTAPPS_ID"; fi
           for d in ¤p/var/opt/nbtapp/apps/*; do
             if [ -f "¤d/nbt-aad" ]; then
               echo "NA ¤d"
+              loc_na=1
               if [ -d "¤p/var/opt/nbtapp/data/¤{d##*/}" ]; then echo "ND ¤p/var/opt/nbtapp/data/¤{d##*/}"; fi
             fi
           done
         done
     """.trimIndent()
+
+    /**
+     * The head unit has two computers. A login on the one that is not hu-omap (hu-jacinto: the address that answers in
+     * the project's guides) reaches hu-omap's /opt/aa and plugin folder as /net/hu-omap/fs/sda0/..., but not its /var,
+     * where NBTApps keeps its program and settings. When this login has found no daemon and has no /var/opt/nbtapp of its
+     * own, hu-omap itself is asked, the way NBTApps' guide does it (`on -f /net/hu-omap/ /bin/sh`): a few lines of
+     * shell run there, write what they find into a small file in hu-omap's RAM (/dev/shmem, which this login reaches as
+     * /net/hu-omap/dev/shmem, as it does the daemon's log), and that file is read and removed here. Nothing else is
+     * written. Prints `HOP ok` when hu-omap answered and `HNA <folder>` / `HND <data folder>` for each NBTApps package that
+     * has an nbt-aad. Needs `loc_ad` and `loc_na` (set by the lookup above it). The arguments are the places as the two
+     * sides name them; tests give other ones.
+     */
+    internal fun hopPart(
+        onCmd: String = "on -f /net/hu-omap/",
+        localNbt: String = "/var/opt/nbtapp",
+        remoteNbt: String = "/var/opt/nbtapp",
+        ramThere: String = "/dev/shmem",
+        ramHere: String = "/net/hu-omap/dev/shmem",
+    ): String = """
+        if [ -z "¤loc_ad" ] && [ -z "¤loc_na" ] && [ ! -d $localNbt ]; then
+          rm -f $ramHere/nbt-aad-tool.hop
+          $onCmd /bin/sh -c '{ echo "HOP ok"; for d in $remoteNbt/apps/*; do if [ -f ¤d/nbt-aad ]; then echo "HNA ¤d"; if [ -d $remoteNbt/data/¤{d##*/} ]; then echo "HND $remoteNbt/data/¤{d##*/}"; fi; fi; done; } > $ramThere/nbt-aad-tool.hop 2>&1' < /dev/null > /dev/null 2>&1
+          if [ -f $ramHere/nbt-aad-tool.hop ]; then
+            cat $ramHere/nbt-aad-tool.hop
+            rm -f $ramHere/nbt-aad-tool.hop
+          fi
+        fi
+    """.trimIndent()
+
+    private val LOCATE_PART = LOCATE_LOOP + "\n" + hopPart()
 
     private val PROC_PART = """
         for d in /proc /net/hu-omap/proc; do
@@ -340,6 +379,32 @@ object RemoteScripts {
     /** The first look at the head unit in one command: where the folders are ([locate]) and whether Android Auto runs. */
     fun probe(): String = sh(LOCATE_PART + "\n" + PROC_PART + "\nexit 0")
 
+    /**
+     * A wide, read-only look for the log when no daemon could be seen where the folders say it should be: how this login's
+     * folders and the other processor's are laid out, and, asked of hu-omap itself (through [hopPart]'s file in RAM),
+     * what its /var/opt/nbtapp, /var/opt/aa and /opt/aa hold. Each listing is short (a few lines per folder).
+     */
+    fun deepLook(): String = sh("""
+        echo "== this login: where its folders are =="
+        ls -ld /opt /var /var/opt /fs /net /net/hu-omap /net/hu-omap/fs /net/hu-omap/dev/shmem 2>&1
+        echo "== /net/hu-omap as this login sees it =="
+        ls -l /net/hu-omap 2>&1
+        echo "== /net/hu-omap/fs =="
+        ls -l /net/hu-omap/fs 2>&1
+        echo "== /net/hu-omap/fs/sda0 =="
+        ls /net/hu-omap/fs/sda0 2>&1
+        rm -f /net/hu-omap/dev/shmem/nbt-aad-tool.deep
+        on -f /net/hu-omap/ /bin/sh -c '{ echo "HOP ok"; ls -ld /opt /var /var/opt /var/opt/nbtapp /var/opt/nbtapp/apps /var/opt/nbtapp/data /var/opt/aa /opt/aa 2>&1; echo "-- apps"; ls -l /var/opt/nbtapp/apps 2>&1; for d in /var/opt/nbtapp/apps/*; do echo "-- ¤d"; ls -l ¤d 2>&1; done; echo "-- data"; ls -l /var/opt/nbtapp/data 2>&1; for d in /var/opt/nbtapp/data/*; do echo "-- ¤d"; ls -l ¤d 2>&1; done; echo "-- /opt/aa"; ls -l /opt/aa 2>&1; echo "-- plugins"; ls -l /opt/hmi/ID5/data/ro/Plugins /var/opt/hmi/data/ID5/Plugins 2>&1; echo "-- shmem"; ls /dev/shmem 2>&1; } > /dev/shmem/nbt-aad-tool.deep 2>&1' < /dev/null > /dev/null 2>&1
+        echo "== hu-omap itself =="
+        if [ -f /net/hu-omap/dev/shmem/nbt-aad-tool.deep ]; then
+          cat /net/hu-omap/dev/shmem/nbt-aad-tool.deep
+          rm -f /net/hu-omap/dev/shmem/nbt-aad-tool.deep
+        else
+          echo "hu-omap did not answer (on -f /net/hu-omap/ gave no file)"
+        fi
+        exit 0
+    """)
+
     /** (NBT-AAD folder, plugin folder) from the output of [locate]; the first prefix that has both wins. */
     fun parseLocate(out: String): Pair<String?, String?> {
         class Row { var aa: String? = null; var pl: String? = null }
@@ -361,6 +426,8 @@ object RemoteScripts {
         val aa: String?, val plugin: String?, val nbtApp: String?, val nbtData: String?, val va: String? = null,
         /** [aa] holds an nbt-aad file: it is where the daemon is, not only a folder that was left behind. */
         val aaDaemon: Boolean = false,
+        /** [nbtApp] and [nbtData] are paths on hu-omap that this login cannot see: hu-omap itself told of them (see [hopPart]). */
+        val viaHop: Boolean = false,
     )
 
     /** Everything [locate] printed, as [Located]; each of the four is the first one found, a plugin folder next to the program first. */
@@ -384,7 +451,30 @@ object RemoteScripts {
         // the data folder of the same prefix as the program folder, when there is one
         val na = rows.firstOrNull { it.na != null }
         val daemonHere = aa != null && rows.any { it.ad == aa }
+        // what hu-omap reported itself: used only when this login saw nothing of NBTApps (the package this app knows first)
+        val hop = parseHop(out)
+        if (na == null && hop != null) {
+            return Located(aa, pl, hop.first, hop.second, rows.firstNotNullOfOrNull { it.va }, daemonHere, viaHop = true)
+        }
         return Located(aa, pl, na?.na, na?.nd ?: rows.firstNotNullOfOrNull { it.nd }, rows.firstNotNullOfOrNull { it.va }, daemonHere)
+    }
+
+    /** `HOP ok` was printed: hu-omap answered the question that [hopPart] sent it. */
+    fun hopAnswered(out: String): Boolean = out.lines().any { it.trim() == "HOP ok" }
+
+    /** (program folder, data folder or null) of the NBTApps package that hu-omap named, the one of this app's package first. */
+    internal fun parseHop(out: String): Pair<String, String?>? {
+        val found = ArrayList<Pair<String, String?>>()
+        for (raw in out.lines()) {
+            val line = raw.trim()
+            when {
+                line.startsWith("HNA ") -> found += line.substring(4).trim() to null
+                line.startsWith("HND ") -> if (found.isNotEmpty() && found.last().second == null) {
+                    found[found.size - 1] = found.last().first to line.substring(4).trim()
+                }
+            }
+        }
+        return found.firstOrNull { it.first.endsWith("/$NBTAPPS_ID") } ?: found.firstOrNull()
     }
 
     /**
@@ -394,7 +484,7 @@ object RemoteScripts {
     fun status(aa: String, pl: String?, withEnv: Boolean = false, env: String = aa): String =
         sh(statusPart(pl != null) + "\n" + BUILD_PART + (if (withEnv) "\n" + ENV_PART else "") + "\nexit 0", aa, pl ?: "", env)
 
-    fun parseStatus(aa: String?, pl: String?, out: String, nbtApps: Boolean = false): UnitStatus {
+    fun parseStatus(aa: String?, pl: String?, out: String, nbtApps: Boolean = false, otherNode: Boolean = false): UnitStatus {
         val files = LinkedHashMap<String, FileState>()
         val plugin = LinkedHashMap<String, Long>()
         var oldPlugin = false
@@ -437,7 +527,10 @@ object RemoteScripts {
                 line.startsWith("NBT-AAD-VERSION=") -> version = line.removePrefix("NBT-AAD-VERSION=")
             }
         }
-        return UnitStatus(aa, pl, files, plugin, oldPlugin, version, envText, envMissing, runningVersion = runningVersion, nbtApps = nbtApps)
+        return UnitStatus(
+            aa, pl, files, plugin, oldPlugin, version, envText, envMissing, runningVersion = runningVersion, nbtApps = nbtApps,
+            otherNode = otherNode,
+        )
     }
 
     /** A line of the daemon's log that names its build: `Build: v1.9.112 (Nov 18 2026 12:34:56)`. */

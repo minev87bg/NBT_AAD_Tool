@@ -175,7 +175,14 @@ private fun SettingsStep(vm: MainViewModel) {
         }
         u != null -> {
             Text("Version", fontSize = 11.sp, color = soft)
-            if (!u.hasDaemon) {
+            if (!u.hasDaemon && u.otherNode) {
+                Text(
+                    u.installedVersion ?: "not known (installed with NBTApps)",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.Monospace,
+                )
+            } else if (!u.hasDaemon) {
                 Text("nbt-aad was not found in ${u.aaDir}", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Red)
             } else {
                 Text(
@@ -187,7 +194,7 @@ private fun SettingsStep(vm: MainViewModel) {
             }
             Spacer(Modifier.height(10.dp))
             AppliedSettings(inst, u)
-            OutlinedButton(onClick = { vm.wizardChange() }, modifier = Modifier.padding(top = 6.dp)) {
+            OutlinedButton(onClick = { vm.wizardChange() }, enabled = !u.otherNode, modifier = Modifier.padding(top = 6.dp)) {
                 Text("CHANGE", fontSize = 12.sp)
             }
             if (vm.changes.isNotEmpty()) {

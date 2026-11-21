@@ -401,7 +401,13 @@ private fun UnitBody(inst: InstallController, u: UnitStatus, onChange: () -> Uni
     if (u.nbtApps) {
         Text(
             "Android Auto here was installed with NBTApps. Update or remove it in NBTApps: installing from this app " +
-                "would add a second copy that NBTApps removes again. Settings, logs and this version check work as usual.",
+                "would add a second copy that NBTApps removes again. " +
+                if (u.otherNode) {
+                    "Its program and nbt-aad.env are on the head unit's other processor, which this connection cannot read, " +
+                        "so only the version Android Auto logged at its last start is shown, and settings are changed in NBTApps."
+                } else {
+                    "Settings, logs and this version check work as usual."
+                },
             fontSize = 12.sp,
             color = Amber,
             modifier = Modifier.padding(bottom = 8.dp),
@@ -411,7 +417,17 @@ private fun UnitBody(inst: InstallController, u: UnitStatus, onChange: () -> Uni
     // ---- the installed version, and whether it is an official release ----
     // the version is the one inside the file when that was read, else the one the daemon logged at its last start
     Text(if (u.versionFromLog) "Version (from the daemon's last start)" else "Installed version", fontSize = 11.sp, color = soft)
-    if (!u.hasDaemon) {
+    if (!u.hasDaemon && u.otherNode) {
+        // NBTApps' folder cannot be seen from this login: what is known is the log's version
+        val logged = u.installedVersion
+        Text(
+            logged ?: "not known: Android Auto has not started since the head unit was switched on",
+            fontSize = if (logged != null) 18.sp else 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            fontFamily = if (logged != null) FontFamily.Monospace else FontFamily.Default,
+            color = if (logged != null) MaterialTheme.colorScheme.onSurface else soft,
+        )
+    } else if (!u.hasDaemon) {
         Text("nbt-aad was not found in ${u.aaDir}", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Red)
     } else {
         val version = u.installedVersion
@@ -488,7 +504,7 @@ private fun UnitBody(inst: InstallController, u: UnitStatus, onChange: () -> Uni
     AppliedSettings(inst, u)
     OutlinedButton(
         onClick = onChange,
-        enabled = inst.job?.status != RunStatus.RUNNING,
+        enabled = inst.job?.status != RunStatus.RUNNING && !u.otherNode,
         modifier = Modifier.padding(top = 6.dp),
     ) { Text(if (u.envMissing) "CREATE NBT-AAD.ENV" else "CHANGE", fontSize = 12.sp) }
 }
@@ -508,6 +524,7 @@ internal fun AppliedSettings(inst: InstallController, u: UnitStatus) {
             }
         }
         u.envText != null -> Text("Nothing is switched on: every setting runs at its default.", fontSize = 12.sp)
+        u.otherNode -> Text("nbt-aad.env is NBTApps' to keep, on the other processor: it cannot be shown from this connection.", fontSize = 12.sp, color = soft)
         u.envMissing -> Text("There is no nbt-aad.env: every setting runs at its default.", fontSize = 12.sp)
         else -> Text("nbt-aad.env could not be read.", fontSize = 12.sp, color = soft)
     }

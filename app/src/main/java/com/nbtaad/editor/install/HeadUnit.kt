@@ -49,12 +49,20 @@ object HeadUnit {
         val aa: String, val plugin: String?, val nbtApps: Boolean = false, val env: String = aa, val va: String? = null,
         /** A manual install's folder that holds nbt-aad. False for a folder left behind (after an uninstall), which an NBTApps install can sit next to. */
         val daemonHere: Boolean = true,
+        /** [aa] and [env] are on hu-omap and this login does not see them (see [RemoteScripts.hopPart]): nothing is read or written there from here. */
+        val viaHop: Boolean = false,
     )
 
     /** Why this app does not install over an NBTApps install. */
     const val NBTAPPS_NOTE =
         "Android Auto on this head unit was installed with NBTApps. Update or remove it there: an install from here " +
             "would put a second copy in /opt/aa, which NBTApps removes again. Settings, logs and the version check work here."
+
+    /** NBTApps was found through hu-omap, and this login cannot read or write its folders. */
+    const val NBTAPPS_OTHER_NODE_NOTE =
+        "Android Auto on this head unit was installed with NBTApps. Its program and its nbt-aad.env are on the head unit's " +
+            "other processor (hu-omap), which this connection (the first address of the head unit) cannot read. " +
+            "Update, remove and change its settings in NBTApps."
 
     /**
      * Which layout the folders say. /opt/aa wins when the daemon is in it; when it is only an empty or left-over folder
@@ -64,13 +72,18 @@ object HeadUnit {
         val loc = RemoteScripts.parseLocated(out)
         return when {
             loc.aa != null && (loc.aaDaemon || loc.nbtApp == null) -> Layout(loc.aa, loc.plugin, va = loc.va, daemonHere = loc.aaDaemon)
-            loc.nbtApp != null -> Layout(loc.nbtApp, loc.plugin, nbtApps = true, env = loc.nbtData ?: loc.nbtApp)
+            loc.nbtApp != null -> Layout(loc.nbtApp, loc.plugin, nbtApps = true, env = loc.nbtData ?: loc.nbtApp, viaHop = loc.viaHop)
             else -> null
         }
     }
 
     /** The folder nbt-aad.env is in: where the daemon of this install reads it (null: no install found). */
-    fun envFolder(ssh: SshSession): String? = layoutOf(ssh.exec(RemoteScripts.locate()).text)?.env
+    fun envFolder(ssh: SshSession): String? {
+        val lay = layoutOf(ssh.exec(RemoteScripts.locate()).text) ?: return null
+        // a folder on hu-omap that this login cannot reach: reading or writing there would go to a path that is not there
+        if (lay.viaHop) throw IOException(NBTAPPS_OTHER_NODE_NOTE)
+        return lay.env
+    }
 
     private fun timeoutFor(bytes: Int): Long = 60_000L + bytes / 8
 
@@ -174,9 +187,23 @@ object HeadUnit {
     private fun readStatus(ssh: SshSession, lay: Layout, withEnv: Boolean = false): UnitStatus =
         RemoteScripts.parseStatus(
             lay.aa, lay.plugin,
-            ssh.exec(RemoteScripts.status(lay.aa, lay.plugin, withEnv, lay.env), timeoutMs = 60_000).text,
+            // not asked for what hu-omap keeps in /var: this login would answer "no such file", which is not the truth
+            ssh.exec(RemoteScripts.status(lay.aa, lay.plugin, withEnv && !lay.viaHop, lay.env), timeoutMs = 60_000).text,
             nbtApps = lay.nbtApps,
+            otherNode = lay.viaHop,
         )
+
+    /** The wide look for the log (see [RemoteScripts.deepLook]); never allowed to spoil the status. */
+    private fun deepLook(ssh: SshSession) {
+        try {
+            val text = ssh.exec(RemoteScripts.deepLook(), timeoutMs = 45_000).text
+            AppLog.d("Unit", "Deep look (no nbt-aad where this login sees it):\n" + text.trim().take(8000))
+        } catch (e: SshCancelled) {
+            throw e
+        } catch (e: Exception) {
+            AppLog.w("Unit", "Deep look failed: ${e.javaClass.simpleName}: ${e.message}")
+        }
+    }
 
     /**
      * The installed nbt-aad read back with `cat` and looked at here (size, SHA-256, the version named inside it), or
@@ -209,7 +236,9 @@ object HeadUnit {
             if (!lay.nbtApps && !lay.daemonHere) {
                 stray(ssh, lay, ssh.exec(RemoteScripts.probe(), timeoutMs = 60_000).text)?.let { throw UnfamiliarLayout(it) }
             }
-            readStatus(ssh, lay, withEnv = true)
+            val s = readStatus(ssh, lay, withEnv = true)
+            if (!s.hasDaemon) deepLook(ssh)
+            s
         }
 
     /**
@@ -321,6 +350,8 @@ object HeadUnit {
                 val lay = try { locate(ssh) } catch (e: SshCancelled) { throw e } catch (e: Exception) { null }
                 out += if (lay == null) {
                     FileRead("nbt-aad.env", null, "the NBT-AAD folder was not found")
+                } else if (lay.viaHop) {
+                    FileRead("nbt-aad.env", null, NBTAPPS_OTHER_NODE_NOTE)
                 } else {
                     read("nbt-aad.env", "${lay.env}/nbt-aad.env", -1)
                 }

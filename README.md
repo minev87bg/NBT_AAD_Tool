@@ -14,8 +14,11 @@ No laptop, no USB stick: the app talks to the head unit over WiFi (SSH).
 
 The app was built and tested with Android Auto installed by hand (`/opt/aa`, as in the project's guide). Android Auto
 installed by [NBTApps](https://github.com/tom-pryor/nbtapps) is recognised too (settings, logs and the version check;
-new, and not yet confirmed on a car). Installing and going back are not done over an NBTApps install: update it in
-NBTApps.
+new, and not yet confirmed on a car). The head unit has two computers: NBTApps keeps its files on hu-omap, which only one
+of the two addresses reaches directly. On the other address the app asks hu-omap itself (the way NBTApps' guide does,
+`on -f /net/hu-omap/ /bin/sh`; read only, with one small file in RAM that is removed again) and then shows the version
+from the daemon's log; the settings of such an install are left to NBTApps. Installing and going back are not done over an
+NBTApps install: update it in NBTApps.
 
 **Uninstall** takes an install made by this app (or by hand in `/opt/aa`) off the head unit again, so that another
 installer finds it clean. It lists exactly what it would remove and changes nothing until you confirm: the daemon and its
