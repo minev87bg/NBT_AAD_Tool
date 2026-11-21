@@ -177,18 +177,9 @@ fun friendlyError(e: Throwable): String {
 }
 
 object EnvRemote {
-    /**
-     * The SSH login lands on one processor of the head unit, but the daemon lives on the other one
-     * ("hu-omap"). The project's install guide switches to it with `on -f /net/hu-omap/ /bin/sh`, where the
-     * folder is /opt/aa. From the login shell the same folder is reachable through the QNX network path,
-     * so try the plain path first and then the network paths.
-     */
-    private val DIRS = listOf(
-        "/opt/aa", "/net/hu-omap/fs/sda0/opt/aa", "/net/hu-omap/opt/aa",
-        // installed with NBTApps: its data folder for the package holds nbt-aad.env (see RemoteScripts.NBTAPPS_ID)
-        "/var/opt/nbtapp/data/${com.nbtaad.editor.install.RemoteScripts.NBTAPPS_ID}",
-        "/net/hu-omap/var/opt/nbtapp/data/${com.nbtaad.editor.install.RemoteScripts.NBTAPPS_ID}",
-    )
+    // The SSH login lands on one processor of the head unit, but the daemon lives on the other one ("hu-omap"); from
+    // the login shell its folders are reachable through the QNX network path. Where nbt-aad.env is depends on who
+    // installed Android Auto, which HeadUnit.envFolder works out.
     const val FILE = "nbt-aad.env"
 
     sealed class ReadResult {
@@ -197,10 +188,9 @@ object EnvRemote {
         data class NoFolder(val detail: String) : ReadResult()
     }
 
-    private fun findDir(ssh: SshSession): String? {
-        val script = "for d in ${DIRS.joinToString(" ")}; do if [ -d \$d ]; then echo \$d; break; fi; done"
-        return ssh.exec(script).text.lineSequence().map { it.trim() }.firstOrNull { it.startsWith("/") }
-    }
+    /** The folder of nbt-aad.env, as the install is laid out (the same look as the Install page: /opt/aa, or NBTApps' data folder). */
+    private fun findDir(ssh: SshSession): String? =
+        com.nbtaad.editor.install.HeadUnit.envFolder(ssh)
 
     /** What the login shell can see, shown to the user when the folder is not found. */
     private fun diagnose(ssh: SshSession): String {

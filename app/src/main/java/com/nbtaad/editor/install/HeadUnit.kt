@@ -45,21 +45,32 @@ object HeadUnit {
      * Where Android Auto is. [aa] is the folder of the program; [env] the folder of nbt-aad.env (the same, except for
      * NBTApps, which keeps the file in a data folder of its own); [nbtApps]: NBTApps put it there, not a person's hands.
      */
-    class Layout(val aa: String, val plugin: String?, val nbtApps: Boolean = false, val env: String = aa, val va: String? = null)
+    class Layout(
+        val aa: String, val plugin: String?, val nbtApps: Boolean = false, val env: String = aa, val va: String? = null,
+        /** A manual install's folder that holds nbt-aad. False for a folder left behind (after an uninstall), which an NBTApps install can sit next to. */
+        val daemonHere: Boolean = true,
+    )
 
     /** Why this app does not install over an NBTApps install. */
     const val NBTAPPS_NOTE =
         "Android Auto on this head unit was installed with NBTApps. Update or remove it there: an install from here " +
             "would put a second copy in /opt/aa, which NBTApps removes again. Settings, logs and the version check work here."
 
-    private fun layoutOf(out: String): Layout? {
+    /**
+     * Which layout the folders say. /opt/aa wins when the daemon is in it; when it is only an empty or left-over folder
+     * (an uninstall leaves it) and NBTApps has its package, the install is NBTApps'.
+     */
+    internal fun layoutOf(out: String): Layout? {
         val loc = RemoteScripts.parseLocated(out)
         return when {
-            loc.aa != null -> Layout(loc.aa, loc.plugin, va = loc.va)
+            loc.aa != null && (loc.aaDaemon || loc.nbtApp == null) -> Layout(loc.aa, loc.plugin, va = loc.va, daemonHere = loc.aaDaemon)
             loc.nbtApp != null -> Layout(loc.nbtApp, loc.plugin, nbtApps = true, env = loc.nbtData ?: loc.nbtApp)
             else -> null
         }
     }
+
+    /** The folder nbt-aad.env is in: where the daemon of this install reads it (null: no install found). */
+    fun envFolder(ssh: SshSession): String? = layoutOf(ssh.exec(RemoteScripts.locate()).text)?.env
 
     private fun timeoutFor(bytes: Int): Long = 60_000L + bytes / 8
 
@@ -91,13 +102,21 @@ object HeadUnit {
     /** Android Auto is on the head unit, but not where this app puts it (/opt/aa) or where NBTApps does. */
     class UnfamiliarLayout(val found: RemoteScripts.ForeignInstall) : IOException(unfamiliarNote(found))
 
+    /** /opt/aa has no daemon, and the one that runs is somewhere else: the folders alone do not say where Android Auto is. */
+    private fun stray(ssh: SshSession, lay: Layout, probeText: String): RemoteScripts.ForeignInstall? {
+        if (lay.nbtApps || lay.daemonHere) return null
+        val scan = RemoteScripts.parseForeign(probeText)
+        val other = scan.exes.firstOrNull { !RemoteScripts.sameFolder(it.path.substringBeforeLast('/', ""), lay.aa) } ?: return null
+        return foreignFrom(ssh, scan, other)
+    }
+
     /** The words to type before this app removes Android Auto from a layout it does not know. */
     const val SURE = "I am sure"
 
     fun isSure(typed: String): Boolean =
         typed.trim().split(Regex("\\s+")).joinToString(" ").equals(SURE, ignoreCase = true)
 
-    fun unfamiliarNote(f: RemoteScripts.ForeignInstall): String = buildString {
+    fun unfamiliarNote(f: RemoteScripts.ForeignInstall): String = if (f.byNbtApps) NBTAPPS_NOTE else buildString {
         append("Android Auto is installed here in a layout this app does not know")
         if (f.plugin != null) append(": the plugin is in ${f.plugin}")
         if (f.seen != null) append(if (f.plugin != null) ", and the daemon runs from ${f.seen}" else ": the daemon runs from ${f.seen}")
@@ -125,7 +144,10 @@ object HeadUnit {
     private fun foreignOf(ssh: SshSession, probeText: String): RemoteScripts.ForeignInstall? {
         val scan = RemoteScripts.parseForeign(probeText)
         if (scan.plugin == null && scan.exes.isEmpty()) return null
-        val first = scan.exes.firstOrNull()
+        return foreignFrom(ssh, scan, scan.exes.firstOrNull())
+    }
+
+    private fun foreignFrom(ssh: SshSession, scan: RemoteScripts.ForeignScan, first: RemoteScripts.SeenExe?): RemoteScripts.ForeignInstall {
         val file = first?.let { e ->
             val cands = RemoteScripts.exeCandidates(e)
             if (cands.isEmpty()) null
@@ -145,6 +167,7 @@ object HeadUnit {
     private fun probe(ssh: SshSession): Probe {
         val text = ssh.exec(RemoteScripts.probe(), timeoutMs = 60_000).text
         val lay = layoutOf(text) ?: throw notFound(ssh, text)
+        stray(ssh, lay, text)?.let { throw UnfamiliarLayout(it) }
         return Probe(lay, RemoteScripts.parseProc(text))
     }
 
@@ -180,7 +203,14 @@ object HeadUnit {
      * ([readInstalledFile]), as that can take a minute.
      */
     fun status(host: String): UnitStatus =
-        SshSession(host).use { ssh -> readStatus(ssh, locate(ssh), withEnv = true) }
+        SshSession(host).use { ssh ->
+            val lay = locate(ssh)
+            // no nbt-aad in the folder: if one runs from somewhere else, that is where Android Auto is
+            if (!lay.nbtApps && !lay.daemonHere) {
+                stray(ssh, lay, ssh.exec(RemoteScripts.probe(), timeoutMs = 60_000).text)?.let { throw UnfamiliarLayout(it) }
+            }
+            readStatus(ssh, lay, withEnv = true)
+        }
 
     /**
      * The installed nbt-aad read back whole and hashed, for its version and to compare with the official releases (null:
@@ -596,7 +626,10 @@ object HeadUnit {
     private fun look(ssh: SshSession): Found {
         val text = ssh.exec(RemoteScripts.probe(), timeoutMs = 60_000).text
         val lay = layoutOf(text)
-        if (lay != null) return Found.Known(Probe(lay, RemoteScripts.parseProc(text)))
+        if (lay != null) {
+            stray(ssh, lay, text)?.let { return Found.Foreign(it, RemoteScripts.parseProc(text)) }
+            return Found.Known(Probe(lay, RemoteScripts.parseProc(text)))
+        }
         val f = foreignOf(ssh, text) ?: throw notFound(ssh, text)
         return Found.Foreign(f, RemoteScripts.parseProc(text))
     }
@@ -619,6 +652,7 @@ object HeadUnit {
                     planOf(ssh, found.probe.layout)
                 }
                 is Found.Foreign -> {
+                    if (found.install.byNbtApps) throw IOException(NBTAPPS_UNINSTALL_NOTE)
                     if (!found.install.manageable) throw UnfamiliarLayout(found.install)
                     planOfForeign(ssh, found.install)
                 }
@@ -656,6 +690,7 @@ object HeadUnit {
                 }
                 is Found.Foreign -> {
                     val f = found.install
+                    if (f.byNbtApps) throw IOException(NBTAPPS_UNINSTALL_NOTE)
                     if (confirmed == null) throw UnfamiliarLayout(f)
                     if (!f.manageable || !f.same(confirmed)) throw changed
                     rep.say("Unfamiliar layout, confirmed with \"$SURE\": the daemon is ${f.file}, the plugin ${f.plugin ?: "not there"}.", Level.WARN)

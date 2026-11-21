@@ -448,7 +448,18 @@ private fun UnitBody(inst: InstallController, u: UnitStatus, onChange: () -> Uni
         val verdict = inst.verdict()
         when {
             inst.fileBusy -> ProgressLine(inst.fileMessage)
-            verdict != null -> VerdictLines(InstalledCheck.describe(verdict, version))
+            verdict != null -> {
+                VerdictLines(InstalledCheck.describe(verdict, version))
+                // the file is confirmed and a newer official release is out: one button to get it (the same as USE on its row)
+                val newer = verdict.newer
+                if (newer != null && !u.nbtApps && ReleaseLogic.installable(newer)) {
+                    Button(
+                        onClick = { inst.useRelease(newer) },
+                        enabled = !inst.working && !inst.prepBusy,
+                        modifier = Modifier.padding(top = 8.dp),
+                    ) { Text("UPDATE TO ${newer.tag}", fontSize = 12.sp) }
+                }
+            }
             else -> {
                 // the file is read only on request: it takes a while, and the settings below do not need it
                 Text(
@@ -479,7 +490,7 @@ private fun UnitBody(inst: InstallController, u: UnitStatus, onChange: () -> Uni
         onClick = onChange,
         enabled = inst.job?.status != RunStatus.RUNNING,
         modifier = Modifier.padding(top = 6.dp),
-    ) { Text("CHANGE", fontSize = 12.sp) }
+    ) { Text(if (u.envMissing) "CREATE NBT-AAD.ENV" else "CHANGE", fontSize = 12.sp) }
 }
 
 /** The settings that nbt-aad.env switches on, as the head unit has them (what "Current status" and the wizard list). */

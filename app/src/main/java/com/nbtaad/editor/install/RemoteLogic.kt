@@ -118,10 +118,17 @@ object RemoteScripts {
         for p in "" /net/hu-omap/fs/sda0 /net/hu-omap; do
           echo "P ¤p"
           if [ -d "¤p/opt/aa" ]; then echo "AA ¤p/opt/aa"; fi
+          if [ -e "¤p/opt/aa/nbt-aad" ]; then echo "AD ¤p/opt/aa"; fi
           if [ -d "¤p/$PLUGIN_SUBPATH" ]; then echo "PL ¤p/$PLUGIN_SUBPATH"; fi
           if [ -d "¤p/var/opt/aa" ]; then echo "VA ¤p/var/opt/aa"; fi
           if [ -d "¤p/var/opt/nbtapp/apps/$NBTAPPS_ID" ]; then echo "NA ¤p/var/opt/nbtapp/apps/$NBTAPPS_ID"; fi
           if [ -d "¤p/var/opt/nbtapp/data/$NBTAPPS_ID" ]; then echo "ND ¤p/var/opt/nbtapp/data/$NBTAPPS_ID"; fi
+          for d in ¤p/var/opt/nbtapp/apps/*; do
+            if [ -f "¤d/nbt-aad" ]; then
+              echo "NA ¤d"
+              if [ -d "¤p/var/opt/nbtapp/data/¤{d##*/}" ]; then echo "ND ¤p/var/opt/nbtapp/data/¤{d##*/}"; fi
+            fi
+          done
         done
     """.trimIndent()
 
@@ -350,11 +357,15 @@ object RemoteScripts {
     }
 
     /** Where [locate] found what: the manual install in /opt/aa, and the folders NBTApps made (its program and its data). */
-    class Located(val aa: String?, val plugin: String?, val nbtApp: String?, val nbtData: String?, val va: String? = null)
+    class Located(
+        val aa: String?, val plugin: String?, val nbtApp: String?, val nbtData: String?, val va: String? = null,
+        /** [aa] holds an nbt-aad file: it is where the daemon is, not only a folder that was left behind. */
+        val aaDaemon: Boolean = false,
+    )
 
     /** Everything [locate] printed, as [Located]; each of the four is the first one found, a plugin folder next to the program first. */
     fun parseLocated(out: String): Located {
-        class Row { var aa: String? = null; var pl: String? = null; var na: String? = null; var nd: String? = null; var va: String? = null }
+        class Row { var aa: String? = null; var ad: String? = null; var pl: String? = null; var na: String? = null; var nd: String? = null; var va: String? = null }
         val rows = ArrayList<Row>()
         for (raw in out.lines()) {
             val line = raw.trim()
@@ -362,15 +373,18 @@ object RemoteScripts {
                 line == "P" || line.startsWith("P ") -> rows += Row()
                 line.startsWith("AA ") -> rows.lastOrNull()?.aa = line.substring(3).trim()
                 line.startsWith("PL ") -> rows.lastOrNull()?.pl = line.substring(3).trim()
-                line.startsWith("NA ") -> rows.lastOrNull()?.na = line.substring(3).trim()
-                line.startsWith("ND ") -> rows.lastOrNull()?.nd = line.substring(3).trim()
+                line.startsWith("AD ") -> rows.lastOrNull()?.ad = line.substring(3).trim()
+                // the first one of a prefix wins: the package this app knows is printed before the others
+                line.startsWith("NA ") -> rows.lastOrNull()?.let { if (it.na == null) it.na = line.substring(3).trim() }
+                line.startsWith("ND ") -> rows.lastOrNull()?.let { if (it.nd == null) it.nd = line.substring(3).trim() }
                 line.startsWith("VA ") -> rows.lastOrNull()?.va = line.substring(3).trim()
             }
         }
         val (aa, pl) = parseLocate(out)
         // the data folder of the same prefix as the program folder, when there is one
         val na = rows.firstOrNull { it.na != null }
-        return Located(aa, pl, na?.na, na?.nd ?: rows.firstNotNullOfOrNull { it.nd }, rows.firstNotNullOfOrNull { it.va })
+        val daemonHere = aa != null && rows.any { it.ad == aa }
+        return Located(aa, pl, na?.na, na?.nd ?: rows.firstNotNullOfOrNull { it.nd }, rows.firstNotNullOfOrNull { it.va }, daemonHere)
     }
 
     /**
@@ -472,7 +486,9 @@ object RemoteScripts {
      * there by an earlier uninstall stays until a new plugin folder takes its place; an installer that looks
      * for an app installed by hand takes a folder parked like that for clean), the daemon and its leftovers are removed,
      * nbt-aad.env and its backups too unless [keepEnv], and the files the iDrive menu's checkboxes keep in /var/opt/aa.
-     * Only names this app knows are touched; anything else in /opt/aa is reported as left. Output lines: MV, RM, RMENV,
+     * The plugin folder is moved only where the daemon is (nbt-aad in the folder): a plugin folder with no daemon of this
+     * app next to it belongs to somebody else's install. Only names this app knows are touched; anything else in /opt/aa
+     * is reported as left. Output lines: MV, RM, RMENV,
      * KEEP, LEFT, REMOUNT, FAIL and DONE (see [parseUninstall]).
      *
      * With [foreignExe] (the file name of a daemon that runs from a folder this app did not make, found by
@@ -496,7 +512,7 @@ object RemoteScripts {
             cd @AA@ || { echo "FAIL aa"; exit 61; }
             """.trimIndent() + "\n" +
             (if (pl != null) """
-            if [ -d @PL@ ]; then
+            if [ -d @PL@ ] && [ -e @OWN@ ]; then
               if [ -e NbtAad.old ]; then
                 echo "RM @AA@/NbtAad.old"
                 if [ ¤apply = 1 ]; then rm -rf NbtAad.old; fi
@@ -506,7 +522,7 @@ object RemoteScripts {
                 mv @PL@ NbtAad.old || { echo "FAIL plugin"; exit 62; }
               fi
             fi
-            """.trimIndent() + "\n" else "") +
+            """.trimIndent().replace("@OWN@", foreignExe ?: "nbt-aad") + "\n" else "") +
             """
             for f in @AA@/*; do
               if [ -e ¤f ] || [ -L ¤f ]; then
@@ -549,6 +565,9 @@ object RemoteScripts {
     private val SAFE_PATH = Regex("^/[A-Za-z0-9_./-]+$")
     private val EXE_NAME = Regex("^nbt-aad[A-Za-z0-9_.-]*$")
 
+    /** Two paths name the same folder when they only differ in the way to the file system: /opt/aa, /fs/sda0/opt/aa, /net/hu-omap/fs/sda0/opt/aa. */
+    fun sameFolder(a: String, b: String): Boolean = shortPath(a.trimEnd('/')) == shortPath(b.trimEnd('/'))
+
     /** The folders of a path below the file system it is on, so "/net/hu-omap/fs/sda0" alone has none. */
     private fun shortPath(p: String): List<String> {
         var parts = p.split('/').filter { it.isNotEmpty() }
@@ -572,6 +591,8 @@ object RemoteScripts {
         val dir: String? get() = file?.substringBeforeLast('/', "")?.takeIf { it.isNotEmpty() }
         val exe: String? get() = file?.substringAfterLast('/')?.takeIf { EXE_NAME.matches(it) }
         val manageable: Boolean get() = dir != null && exe != null
+        /** It runs from NBTApps' folder: that install is NBTApps' to change. */
+        val byNbtApps: Boolean get() = listOfNotNull(seen, file).any { it.contains("/var/opt/nbtapp/") }
         fun same(o: ForeignInstall) = plugin == o.plugin && file == o.file
     }
 
