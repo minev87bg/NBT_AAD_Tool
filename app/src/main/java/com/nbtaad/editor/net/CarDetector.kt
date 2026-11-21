@@ -247,6 +247,25 @@ object CarDetector {
         }
     }
 
+    /** Asked of a login: which of the Android Auto side's folders it sees as its own (not through /net/hu-omap). */
+    const val LOCAL_FOLDERS_SCRIPT =
+        "for d in /opt/aa /opt/hmi/ID5/data/ro/Plugins /var/opt/aa /var/opt/nbtapp; do if [ -d \$d ]; then echo \$d; fi; done"
+
+    /** How many of those folders the login on [ip] has itself; -1 when the login did not work. */
+    private fun localFolders(ip: String): Int = try {
+        SshSession(ip).use { ssh ->
+            val n = ssh.exec(LOCAL_FOLDERS_SCRIPT, timeoutMs = 8000).text.lines().count { it.trim().startsWith("/") }
+            AppLog.d("Detect", "Login on $ip has $n of the Android Auto folders itself")
+            n
+        }
+    } catch (e: Exception) {
+        AppLog.d("Detect", "Looking at the folders of $ip failed: ${e.message}")
+        -1
+    }
+
+    /** The address with the most folders (the first one on a tie); null for an empty list. */
+    internal fun pickByLocalFolders(scores: List<Pair<String, Int>>): String? = scores.maxByOrNull { it.second }?.first
+
     /** Returns (head unit address or null, SSH port open). */
     fun findHeadUnit(nets: List<LocalNet>, zgw: String?): Pair<String?, Boolean> {
         val hosts = LinkedHashSet<String>()
@@ -266,7 +285,11 @@ object CarDetector {
         if (open.size > 1 && zgw != null) open = open.filter { it != zgw }.ifEmpty { open }
         if (open.isNotEmpty()) {
             val ranked = open.map { it to rank(it) }
-            val best = ranked.minByOrNull { it.second }!!.first
+            val bestRank = ranked.minOf { it.second }
+            val tied = ranked.filter { it.second == bestRank }.map { it.first }
+            // two logins that look alike (the head unit has two processors that both answer): take the one that has the
+            // Android Auto folders itself, because the other one sees only part of them (not /var, where NBTApps keeps its files)
+            val best = if (tied.size > 1) pickByLocalFolders(tied.map { it to localFolders(it) }) ?: tied.first() else tied.first()
             AppLog.d("Detect", "Head unit candidates (address=rank, lower is better): $ranked; chosen $best")
             return best to true
         }
