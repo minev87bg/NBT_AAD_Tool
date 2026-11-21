@@ -126,7 +126,7 @@ class AddOnAiTest {
         val root = Json.parse(body).asObj()
         assertNotNull(root)
         assertTrue(body.contains("\"max_tokens\":${AddOnAi.MAX_TOKENS}"))
-        assertEquals("disabled", root["thinking"].asObj()!!.str("type"))
+        assertEquals("disabled", root!!["thinking"].asObj()!!.str("type"))
         assertTrue(AddOnAi.MAX_TOKENS >= 2000)
         val system = root!!.str("system")
         assertTrue(system.contains("Can the app apply it?"))

@@ -24,8 +24,6 @@ class SniffTest {
         assertEquals("starts with 01 02 03", Sniff.nonPicture(bytes(1, 2, 3)))
     }
 
-    private fun bytes(vararg v: Int) = ByteArray(v.size) { v[it].toByte() }
-
     private fun ftyp(brand: String) = bytes(0, 0, 0, 0x20) + "ftyp".toByteArray() + brand.toByteArray() + ByteArray(8)
 
     @Test
