@@ -119,7 +119,8 @@ class UninstallScriptTest {
         assertTrue(File(f.aa, "NbtAad.old/libNbtAad.so").exists())
         assertTrue(plan.moves.isEmpty())
         assertFalse(File(f.aa, "NbtAad.old").path in plan.removes)
-        // a plugin put there again replaces it
+        // an install put there again (daemon and plugin) replaces it
+        File(f.aa, "nbt-aad").writeText("d")
         f.plugin.mkdirs(); File(f.plugin, "libNbtAad.so").writeText("newer")
         val again = RemoteScripts.parseUninstall(run(script(f, keepEnv = false, apply = true)))
         assertEquals(1, again.moves.size)
