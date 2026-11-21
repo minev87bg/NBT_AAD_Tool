@@ -68,6 +68,10 @@ once, then install a release. From then on updates install over the existing app
    to try things away from the car. What needs the head unit (reading, saving, installing, going back, CHECK AGAIN,
    TOOLS CHECK) looks for the car itself when none is known ("No car known yet. Looking for the car…"), so nothing sends
    you back to the first screen; if no car is found it says why (for example "Car found, but SSH is closed").
+   **port probe** (bottom left, next to "manual IPs") is for finding out what the head unit offers on the car's own
+   WiFi while Android Auto runs, when SSH is not there. Start Android Auto first, then QUICK (ports up to 10000) or FULL
+   (every port): it only tries to open connections and closes them again, and writes what answered, what was refused and
+   what was dropped without an answer to the app log (tag "Probe").
 4. NEXT opens the page where you choose what to do, three tiles: **Install / update** (big green tile, NBT Android
    Auto), **Change a setting** (edit nbt-aad.env) and **Browse community for more** (big amber tile: the project's
    issues and pull requests, and **PREPARE LOGS** on each page to take part in a test). The (i) on each tile says what

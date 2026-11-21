@@ -38,6 +38,7 @@ import com.nbtaad.editor.net.DetectResult
 import com.nbtaad.editor.net.EnvRemote
 import com.nbtaad.editor.net.Hsfz
 import com.nbtaad.editor.net.NetworkBinder
+import com.nbtaad.editor.net.PortProbe
 import com.nbtaad.editor.net.Reach
 import com.nbtaad.editor.net.Online
 import com.nbtaad.editor.net.friendlyError
@@ -51,6 +52,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.coroutines.coroutineContext
 
 enum class Screen { DETECT, HUB, OPTIONS, INSTALL, EXPERIMENTAL, CONTRIBUTE, WIZARD }
 enum class UpdatePhase { IDLE, CHECKING, CURRENT, AVAILABLE, DOWNLOADING, FAILED }
@@ -504,6 +506,52 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun closeConnectAgain() {
         connectDialog = false
+    }
+
+    // ---------------- the port probe (what answers on the car's WiFi while Android Auto runs) ----------------
+
+    /** The window of the port probe. */
+    var probeDialog by mutableStateOf(false)
+    var probeBusy by mutableStateOf(false); private set
+
+    /** The progress while it runs, the result when it is done. */
+    var probeText by mutableStateOf(""); private set
+    private var probeJob: Job? = null
+
+    fun openProbe() {
+        probeDialog = true
+    }
+
+    /** Closes the window; a probe that is still running is stopped. */
+    fun closeProbe() {
+        probeJob?.cancel()
+        probeDialog = false
+    }
+
+    fun stopProbe() {
+        probeJob?.cancel()
+    }
+
+    /** [full]: every port (1-65535), else the ports up to 10000. Only looks; see [PortProbe]. */
+    fun startProbe(full: Boolean) {
+        if (probeBusy) return
+        probeBusy = true
+        probeText = "Starting…"
+        AppLog.i("Probe", "Port probe started (${if (full) "every port" else "ports up to 10000"})")
+        probeJob = viewModelScope.launch(Dispatchers.IO) {
+            val me = coroutineContext[Job]
+            try {
+                NetworkBinder.bindToLocalNetwork(ctx)
+                val text = PortProbe.run(ctx, CarDetector.localNetworks(), full, say = { probeText = it }, cancelled = { me?.isActive == false })
+                probeText = text
+            } catch (e: Exception) {
+                AppLog.e("Probe", "The port probe failed", e)
+                probeText = "The probe failed: ${friendlyError(e)}"
+            } finally {
+                probeBusy = false
+                AppLog.i("Probe", "Port probe ended")
+            }
+        }
     }
 
     fun setManual(zgwText: String, huText: String) {

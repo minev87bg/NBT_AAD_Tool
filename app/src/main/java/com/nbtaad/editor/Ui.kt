@@ -222,10 +222,10 @@ private fun DetectScreen(vm: MainViewModel) {
             }
         }
 
-        TextButton(
-            onClick = { vm.manualDialog = true },
-            modifier = Modifier.align(Alignment.BottomStart),
-        ) { Text("manual IPs", fontSize = 12.sp) }
+        Row(Modifier.align(Alignment.BottomStart)) {
+            TextButton(onClick = { vm.manualDialog = true }) { Text("manual IPs", fontSize = 12.sp) }
+            TextButton(onClick = { vm.openProbe() }) { Text("port probe", fontSize = 12.sp) }
+        }
 
         Column(Modifier.align(Alignment.BottomEnd).padding(end = 6.dp, bottom = 8.dp), horizontalAlignment = Alignment.End) {
             TextButton(
@@ -265,6 +265,46 @@ private fun DetectScreen(vm: MainViewModel) {
     }
 
     if (vm.manualDialog) ManualDialog(vm)
+    if (vm.probeDialog) ProbeDialog(vm)
+}
+
+/**
+ * The port probe: with Android Auto running, which ports of the head unit answer on the phone's WiFi? It only tries to
+ * open connections and closes them again. The result is shown here and written to the app log (Probe).
+ */
+@Composable
+private fun ProbeDialog(vm: MainViewModel) {
+    AlertDialog(
+        onDismissRequest = { if (!vm.probeBusy) vm.closeProbe() },
+        title = { Text("Port probe", fontSize = 18.sp) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                if (vm.probeText.isEmpty()) {
+                    Text(
+                        "Start Android Auto first, so the car's screen shows it and the phone is on the car's WiFi. " +
+                            "Then press QUICK (ports up to 10000, about a minute) or FULL (every port, a few minutes).\n\n" +
+                            "It only looks: it tries to open connections to the head unit and closes them again. " +
+                            "It sends nothing and changes nothing. Android Auto may reconnect once while it runs.",
+                        fontSize = 12.sp,
+                    )
+                } else {
+                    Text(vm.probeText, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                }
+                if (vm.probeBusy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
+            }
+        },
+        confirmButton = {
+            if (vm.probeBusy) {
+                TextButton(onClick = { vm.stopProbe() }) { Text("STOP") }
+            } else {
+                Row {
+                    TextButton(onClick = { vm.startProbe(false) }) { Text("QUICK") }
+                    TextButton(onClick = { vm.startProbe(true) }) { Text("FULL") }
+                }
+            }
+        },
+        dismissButton = { TextButton(onClick = { vm.closeProbe() }) { Text("CLOSE") } },
+    )
 }
 
 /** Is there a newer version of this app on GitHub? One tap downloads it and hands it to Android's installer. */
