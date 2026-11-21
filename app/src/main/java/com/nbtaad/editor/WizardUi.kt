@@ -157,7 +157,7 @@ private fun VersionStep(vm: MainViewModel) {
     ChoiceRow(
         "DIFFERENT",
         "Opens the Install page, where you pick a release or a file from this phone. BACK TO WIZARD there brings you " +
-            "back here.\n\nA build that is shared on the page: press GET FOR INSTALL on the page first, then choose CURRENT here.",
+            "back here.\n\nA build that is shared on the page: press LOOK INSIDE on the page first, then TRY TO INSTALL there, then choose CURRENT here.",
     ) { vm.wizardDifferent() }
 }
 

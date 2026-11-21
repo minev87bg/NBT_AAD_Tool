@@ -37,7 +37,10 @@ object AiClient {
     }
 
     /** One answer of the API: its text (null when it had none) and why it stopped. */
-    private class Reply(val text: String?, val stop: String)
+    private class Reply(val text: String?, val stop: String, val parts: String)
+
+    /** The API refused the thinking setting of the request: [send] asks again without it. */
+    private class ThinkingRejected : Answered("thinking setting not accepted")
 
     /**
      * Sends one prepared request ([bodyJson]) to the Messages API and returns the text of the answer. An answer without
@@ -45,15 +48,23 @@ object AiClient {
      * person is told; the reason it stopped is written to the log either way.
      */
     fun send(ctx: Context, key: String, bodyJson: String, what: String): String {
-        val body = bodyJson.toByteArray(Charsets.UTF_8)
+        var body = bodyJson.toByteArray(Charsets.UTF_8)
         val started = System.currentTimeMillis()
-        var reply = once(ctx, key, body)
+        // when the API does not take the thinking setting the request goes out again without it
+        fun ask(): Reply = try {
+            once(ctx, key, body)
+        } catch (e: ThinkingRejected) {
+            AppLog.w("AI", "$what: the API does not take the thinking setting, asking without it")
+            body = bodyJson.replace(AiLogic.THINKING_OFF, "").toByteArray(Charsets.UTF_8)
+            once(ctx, key, body)
+        }
+        var reply = ask()
         if (reply.text == null) {
-            AppLog.w("AI", "$what: Claude answered without any text (stop reason \"${reply.stop}\"), asking once more")
-            reply = once(ctx, key, body)
+            AppLog.w("AI", "$what: Claude answered without any text (stop reason \"${reply.stop}\", parts: ${reply.parts}), asking once more")
+            reply = ask()
         }
         val text = reply.text ?: run {
-            AppLog.w("AI", "$what: again no text (stop reason \"${reply.stop}\")")
+            AppLog.w("AI", "$what: again no text (stop reason \"${reply.stop}\", parts: ${reply.parts})")
             throw AiException(AiLogic.emptyAnswerText(reply.stop))
         }
         AppLog.i("AI", "$what written in ${System.currentTimeMillis() - started} ms, ${text.length} characters")
@@ -77,11 +88,12 @@ object AiClient {
             val answer = stream?.use { it.readBytes() }?.toString(Charsets.UTF_8).orEmpty()
             if (code !in 200..299) {
                 AppLog.w("AI", "Anthropic answered $code")
+                if (AiLogic.rejectsThinking(code, answer)) throw ThinkingRejected()
                 throw AiException(AiLogic.errorText(code, answer))
             }
             val stop = AiLogic.stopReason(answer)
             val out = AiLogic.answerText(answer)
-            Reply(if (out != null && stop == "max_tokens") "$out\n\n_(The answer was cut short.)_" else out, stop)
+            Reply(if (out != null && stop == "max_tokens") "$out\n\n_(The answer was cut short.)_" else out, stop, AiLogic.blockTypes(answer))
         } finally {
             c.disconnect()
         }

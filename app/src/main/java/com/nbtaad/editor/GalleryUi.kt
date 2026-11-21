@@ -47,6 +47,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -86,6 +87,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.nbtaad.editor.experimental.ExperimentalController
@@ -93,6 +95,11 @@ import com.nbtaad.editor.experimental.MdPicture
 import com.nbtaad.editor.experimental.Pictures
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import android.net.Uri
+import android.view.Gravity
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.VideoView
 
 // =========================================================================
 // Text files (logs, notes) in a window
@@ -350,8 +357,20 @@ internal fun PictureImage(url: String, maxSide: Int, modifier: Modifier, content
         }
     }
     val img = bmp
+    var playing by remember(url) { mutableStateOf(false) }
+    if (playing) VideoDialog(url) { playing = false }
     when {
         img != null -> Image(bitmap = img, contentDescription = null, modifier = modifier, contentScale = contentScale)
+        // GitHub serves a video attached to a post at the same kind of address as a picture: it is played instead
+        failed && Pictures.isVideo(url) -> Box(
+            modifier.background(Color(0xFF14181F)).clickable { playing = true },
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("▶", fontSize = 30.sp, color = Color.White)
+                Text("PLAY VIDEO", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFFE9A33A))
+            }
+        }
         failed -> Box(modifier, contentAlignment = Alignment.Center) {
             Text(
                 "Cannot show this picture here",
@@ -502,5 +521,91 @@ private fun ZoomablePicture(url: String, active: Boolean, onZoomed: (Boolean) ->
             },
             ContentScale.Fit,
         )
+    }
+}
+
+// =========================================================================
+// Video
+// =========================================================================
+
+/**
+ * A video from a page, played in a window: it is loaded into the app's cache folder first (the phone's player needs a
+ * file), then played with the phone's own video player. PAUSE / PLAY and the replay button are below the picture.
+ */
+@Composable
+internal fun VideoDialog(url: String, onClose: () -> Unit) {
+    val ctx = LocalContext.current.applicationContext
+    val uri = LocalUriHandler.current
+    var file by remember(url) { mutableStateOf<java.io.File?>(null) }
+    var loaded by remember(url) { mutableStateOf(0L) }
+    var error by remember(url) { mutableStateOf("") }
+    var paused by remember(url) { mutableStateOf(false) }
+    val player = remember(url) { mutableStateOf<VideoView?>(null) }
+    LaunchedEffect(url) {
+        try {
+            file = Pictures.videoFile(ctx, url) { loaded = it }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            com.nbtaad.editor.log.AppLog.w("Pictures", "Video could not be loaded: ${e.javaClass.simpleName}: ${e.message}: $url")
+            error = e.message ?: "The video could not be loaded."
+        }
+    }
+    DisposableEffect(url) { onDispose { player.value?.stopPlayback() } }
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(Modifier.fillMaxSize(), color = Color.Black, contentColor = Color.White) {
+            Column(Modifier.fillMaxSize().safeDrawingPadding()) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Video", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { openLink(uri, url) }) { Text("OPEN IN BROWSER", fontSize = 11.sp, color = Color(0xFFE9A33A)) }
+                    TextButton(onClick = onClose) { Text("CLOSE", fontSize = 12.sp, color = Color(0xFFE9A33A)) }
+                }
+                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    val f = file
+                    when {
+                        error.isNotEmpty() -> Text(error, fontSize = 13.sp, color = Color(0xFFFF8A80), modifier = Modifier.padding(24.dp), textAlign = TextAlign.Center)
+                        f == null -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.dp)
+                            Text(
+                                if (loaded > 0) "Loading the video… ${loaded / 1024} KB" else "Loading the video…",
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(top = 10.dp),
+                            )
+                        }
+                        else -> AndroidView(
+                            modifier = Modifier.fillMaxSize(),
+                            factory = { c ->
+                                val frame = FrameLayout(c)
+                                val vv = VideoView(c)
+                                vv.setOnPreparedListener { it.isLooping = false; vv.start() }
+                                vv.setOnErrorListener { _, _, _ ->
+                                    error = "The phone cannot play this video. Open it in the browser instead."
+                                    true
+                                }
+                                vv.setVideoURI(Uri.fromFile(f))
+                                frame.addView(
+                                    vv,
+                                    FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.CENTER),
+                                )
+                                player.value = vv
+                                frame
+                            },
+                        )
+                    }
+                }
+                if (file != null && error.isEmpty()) {
+                    Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.Center) {
+                        TextButton(onClick = {
+                            player.value?.let { if (paused) it.start() else it.pause() }
+                            paused = !paused
+                        }) { Text(if (paused) "PLAY" else "PAUSE", fontSize = 13.sp, color = Color(0xFFE9A33A)) }
+                        TextButton(onClick = {
+                            player.value?.let { it.seekTo(0); it.start() }
+                            paused = false
+                        }) { Text("FROM THE START", fontSize = 13.sp, color = Color(0xFFE9A33A)) }
+                    }
+                }
+            }
+        }
     }
 }

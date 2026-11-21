@@ -1,5 +1,6 @@
 package com.nbtaad.editor.addon
 
+import com.nbtaad.editor.install.BuildPackage
 import com.nbtaad.editor.install.Kind
 import com.nbtaad.editor.install.Names
 
@@ -18,13 +19,24 @@ class Recognition(
     val facts: List<String>,
     /** Things that speak against applying it. */
     val problems: List<String>,
-    /** True when the installer (GET FOR INSTALL) takes these files. */
+    /** True when the installer takes these files (TRY TO INSTALL is offered then). */
     val installable: Boolean,
     /** The add-on's name when [match] is [Match.KNOWN_ADDON]. */
     val addOn: String? = null,
     /** True when the app has a recipe that applies this add-on. */
     val appliesInApp: Boolean = false,
-)
+    /** One sentence that says where the file stands, for the top of the window and the file's row. */
+    val verdict: String = "",
+) {
+    /** How the verdict is coloured: ready to try, worth a look but not installable, or problems found. */
+    val level: Level get() = when {
+        problems.isNotEmpty() -> Level.NO
+        installable -> Level.READY
+        else -> Level.NOT_HERE
+    }
+
+    enum class Level { READY, NOT_HERE, NO }
+}
 
 /** An add-on the app knows by the files it comes with. */
 class KnownAddOn(
@@ -57,9 +69,11 @@ object AddOns {
      * checksum lists are not counted, nor is what is inside the plugin's own zips.
      */
     fun leftOut(s: Survey): List<Entry> = s.entries.filter { e ->
-        val inBuildZip = e.path.split('/').dropLast(1).any { Names.canonical(it) != null }
-        Names.canonical(e.base) == null && !Names.isContainer(e.base) && !inBuildZip && !NOTE_NAMES.matches(e.base)
+        Names.canonical(e.base) == null && !Names.isContainer(e.base) && !inBuildZip(e) && !NOTE_NAMES.matches(e.base)
     }
+
+    /** True for a file that sits inside one of the plugin's own zips (such as NbtAad_ALL_Images.zip): part of the plugin. */
+    fun inBuildZip(e: Entry): Boolean = e.path.split('/').dropLast(1).any { Names.canonical(it) != null }
 
     private fun leftOutFacts(s: Survey): List<String> {
         val out = leftOut(s)
@@ -108,9 +122,12 @@ object AddOns {
             problems += b.problems
             facts += b.warnings
             facts += leftOutFacts(s)
+            val ok = b.installable && s.refused == null
+            if (ok) facts += checkedFacts(b)
             return Recognition(
                 Match.SQ00KY_BUILD, "Files of Sq00ky's NBT-AAD", facts, problems,
-                installable = b.installable && s.refused == null,
+                installable = ok,
+                verdict = if (ok) readyVerdict(b) else "Cannot be installed: ${problems.firstOrNull() ?: "the installer does not take these files."}",
             )
         }
 
@@ -124,6 +141,7 @@ object AddOns {
                 return Recognition(
                     Match.KNOWN_ADDON, "${k.title} (add-on)", facts, problems,
                     installable = false, addOn = k.id, appliesInApp = k.recipe,
+                    verdict = if (k.recipe) "Recognized as ${k.title}: the app can apply it." else "Recognized as ${k.title}, but the app cannot install add-ons yet.",
                 )
             }
         }
@@ -134,6 +152,26 @@ object AddOns {
             (if (programs > 0) ", $programs made for the head unit" else "") +
             (if (scripts > 0) ", $scripts script${if (scripts == 1) "" else "s"}" else "") + "."
         facts += "None of Sq00ky's build files (nbt-aad, pf_aa, the plugin files) are in it, and it is not an add-on the app knows."
-        return Recognition(Match.UNKNOWN, "Not a build the app knows", facts, problems, installable = false)
+        return Recognition(
+            Match.UNKNOWN, "Not a build the app knows", facts, problems, installable = false,
+            verdict = if (s.refused != null) "The app cannot read this file." else "Not an NBT-AAD build: the app cannot install it.",
+        )
+    }
+
+    /** The sentence for a build the installer takes. It promises nothing about the result: the files are not official. */
+    private fun readyVerdict(b: BuildPackage): String = when (b.kind) {
+        Kind.BUILD -> "Compatible: all ${b.found.size} of ${Names.ALL.size} files of an NBT-AAD build are here and look right. Ready to try."
+        Kind.DAEMON_ONLY -> "Compatible: the daemon (nbt-aad) alone, as a test build. Ready to try."
+        Kind.PLUGIN_ONLY -> "Compatible: ${b.found.size} plugin file${if (b.found.size == 1) "" else "s"} without the daemon. Ready to try."
+        else -> "Compatible: ${b.found.size} of ${Names.ALL.size} files of a build. Ready to try; the other files stay as they are."
+    }
+
+    /** What the installer looked at, so "compatible" is not just a word. */
+    private fun checkedFacts(b: BuildPackage): List<String> {
+        val out = ArrayList<String>()
+        val programs = listOf(Names.DAEMON, Names.FIREWALL).filter { it in b.payloads }
+        if (programs.isNotEmpty()) out += "${programs.joinToString(" and ")} ${if (programs.size == 1) "is a" else "are"} 32-bit ARM program${if (programs.size == 1) "" else "s"}, the kind the head unit runs."
+        if ("libNbtAad.so" in b.payloads) out += "libNbtAad.so is a 32-bit ARM library, the kind iDrive loads."
+        return out
     }
 }

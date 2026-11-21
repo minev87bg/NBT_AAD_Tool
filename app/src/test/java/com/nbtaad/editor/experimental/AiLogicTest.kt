@@ -87,4 +87,31 @@ class AiLogicTest {
         assertFalse(AiLogic.looksLikeKey("sk-ant-api03-abcdefghij klmnopqrstuvwxyz0123456789"))
         assertNotNull(AiLogic.SYSTEM_PROMPT)
     }
+
+    @Test
+    fun theRequestTurnsThinkingOffAndCanBeSentWithoutIt() {
+        val json = AiLogic.requestJson(topic("hello"), emptyList())
+        assertEquals("disabled", Json.parse(json).asObj()!!["thinking"].asObj()!!.str("type"))
+        val without = json.replace(AiLogic.THINKING_OFF, "")
+        val root = Json.parse(without).asObj()!!
+        assertNull(root["thinking"])
+        assertEquals("claude-haiku-5-5", root.str("model"))
+    }
+
+    @Test
+    fun anAnswerWithOnlyThinkingHasNoTextAndTheLogSaysSo() {
+        val body = """{"content":[{"type":"thinking","thinking":"hm"}],"stop_reason":"max_tokens"}"""
+        assertNull(AiLogic.answerText(body))
+        assertEquals("max_tokens", AiLogic.stopReason(body))
+        assertEquals("thinking", AiLogic.blockTypes(body))
+        assertEquals("thinking, text", AiLogic.blockTypes("""{"content":[{"type":"thinking"},{"type":"text","text":"x"}]}"""))
+        assertEquals("unreadable", AiLogic.blockTypes("not json"))
+    }
+
+    @Test
+    fun onlyABadRequestAboutThinkingIsRetriedWithoutIt() {
+        assertTrue(AiLogic.rejectsThinking(400, """{"error":{"type":"invalid_request_error","message":"thinking: not supported"}}"""))
+        assertFalse(AiLogic.rejectsThinking(400, """{"error":{"message":"max_tokens too large"}}"""))
+        assertFalse(AiLogic.rejectsThinking(401, """thinking"""))
+    }
 }

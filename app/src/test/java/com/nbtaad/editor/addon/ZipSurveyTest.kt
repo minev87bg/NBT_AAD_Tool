@@ -256,4 +256,32 @@ class ZipSurveyTest {
         assertTrue(AddOns.leftOut(s).isEmpty())
         assertFalse(AddOns.recognize(s).facts.any { it.contains("NOT be installed") })
     }
+
+    // ---- libraries, and zips made on Windows ----
+
+    @Test
+    fun aSharedLibraryOfArmIsALibraryNotAnOtherProgram() {
+        assertEquals(EntryKind.LIBRARY, ZipSurvey.classify("libNbtAad.so", elf(type = 3, qnx = false)))
+        // a program that does not ask for QNX is still "other"; so is a library for another processor
+        assertEquals(EntryKind.ELF, ZipSurvey.classify("x", elf(type = 2, qnx = false)))
+        assertEquals(EntryKind.ELF, ZipSurvey.classify("x.so", elf(type = 3, machine = 62, qnx = false)))
+        val s = ZipSurvey.survey("b.zip", zipOf("libNbtAad.so" to elf(type = 3, qnx = false)))
+        assertEquals("32-bit ARM", s.find("libNbtAad.so")!!.note)
+    }
+
+    @Test
+    fun backslashesInEntryNamesBecomeSlashes() {
+        val s = ZipSurvey.survey("win.zip", zipOf("release\\libNbtAad.so" to elf(type = 3, qnx = false), "release\\notes.txt" to text("hello\n")))
+        val paths = s.entries.map { it.path }
+        assertTrue(paths.toString(), "release/libNbtAad.so" in paths)
+        assertEquals("libNbtAad.so", s.find("libNbtAad.so")!!.base)
+        assertEquals(EntryKind.LIBRARY, s.find("libNbtAad.so")!!.kind)
+    }
+
+    @Test
+    fun anUnsafeBackslashPathIsStillSkipped() {
+        val s = ZipSurvey.survey("bad.zip", zipOf("..\\..\\evil.sh" to text("#!/bin/sh\n"), "ok.txt" to text("fine\n")))
+        assertNull(s.find("evil.sh"))
+        assertNotNull(s.find("ok.txt"))
+    }
 }

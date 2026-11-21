@@ -22,6 +22,8 @@ import java.util.zip.ZipInputStream
 enum class EntryKind(val label: String) {
     /** A 32-bit ARM program or library that asks for the QNX loader: made for the head unit. */
     PROGRAM("program for the head unit"),
+    /** A 32-bit ARM shared library (such as the plugin's libNbtAad.so). */
+    LIBRARY("library for the head unit"),
     ELF("other program"),
     SCRIPT("script"),
     TEXT("text"),
@@ -89,7 +91,14 @@ object ZipSurvey {
 
     /** What a file is, from its first bytes and its name. */
     fun classify(path: String, head: ByteArray): EntryKind {
-        Elf.parse(head)?.let { return if (it.isArm32 && it.qnx) EntryKind.PROGRAM else EntryKind.ELF }
+        Elf.parse(head)?.let {
+            return when {
+                it.isArm32 && it.qnx -> EntryKind.PROGRAM
+                // a shared object (type 3) of 32-bit ARM that does not name the QNX loader is a library, not a program
+                it.isArm32 && it.type == 3 -> EntryKind.LIBRARY
+                else -> EntryKind.ELF
+            }
+        }
         if (Inspector.isZip(head) || starts(head, OTHER_ARCHIVES)) return EntryKind.ARCHIVE
         val lower = path.lowercase()
         if (ARCHIVE_NAMES.any { lower.endsWith(it) }) return EntryKind.ARCHIVE
@@ -132,7 +141,8 @@ object ZipSurvey {
         } else null
         val note = when (kind) {
             EntryKind.PROGRAM -> "32-bit ARM, QNX"
-            EntryKind.ELF -> "not a QNX program for the head unit"
+            EntryKind.LIBRARY -> "32-bit ARM"
+            EntryKind.ELF -> if (Elf.parse(head)?.isArm32 == true) "does not name the QNX loader" else "not 32-bit ARM: the head unit cannot run it"
             else -> ""
         }
         run.entries += Entry(path, size, kind, sha, text, note)
@@ -149,7 +159,8 @@ object ZipSurvey {
                         break
                     }
                     if (e.isDirectory) continue
-                    val path = from + e.name
+                    // a zip made on Windows may use \ between folders: the path is written with / from here on
+                    val path = from + e.name.replace('\\', '/')
                     if (unsafe(e.name)) {
                         run.notes += "Skipped an entry with an unsafe path ($path)."
                         continue

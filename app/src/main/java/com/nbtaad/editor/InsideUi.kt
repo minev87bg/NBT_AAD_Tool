@@ -13,7 +13,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
@@ -21,8 +24,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nbtaad.editor.addon.AddOns
 import com.nbtaad.editor.addon.EntryKind
 import com.nbtaad.editor.addon.Match
+import com.nbtaad.editor.addon.Recognition
 import com.nbtaad.editor.experimental.AiLogic
 import com.nbtaad.editor.experimental.ExperimentalController
 import com.nbtaad.editor.experimental.Markdown
@@ -34,25 +39,46 @@ private fun sizeText(n: Long): String = when {
 }
 
 /**
- * What LOOK INSIDE found: what the app makes of the file, every file in it with what it is, and the AI check. Nothing
- * here installs anything; GET FOR INSTALL is offered only for the files of a build the installer takes.
+ * What LOOK INSIDE found: first a verdict (is it compatible and ready to try, or not), then what the app makes of the
+ * file, every file in it with what it is, and the AI check. Nothing here installs anything; TRY TO INSTALL is offered
+ * only for the files of a build the installer takes, and only hands them to the Install page.
  */
 @Composable
 internal fun InsideDialog(exp: ExperimentalController, ins: ExperimentalController.Inside) {
     val rec = ins.recognition
     val s = ins.survey
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    val tone: Color = when {
-        rec.problems.isNotEmpty() -> Red
-        rec.installable -> Green
-        else -> Amber
+    val tone: Color = when (rec.level) {
+        Recognition.Level.NO -> Red
+        Recognition.Level.READY -> Green
+        Recognition.Level.NOT_HERE -> Amber
     }
+    val mark = when (rec.level) {
+        Recognition.Level.NO -> "✗ "
+        Recognition.Level.READY -> "✓ "
+        Recognition.Level.NOT_HERE -> "! "
+    }
+    var showNested by remember { mutableStateOf(false) }
+    // the plugin's own zips hold many small files (pictures, texts): they are one line until asked for
+    val nested = remember(s) { s.entries.count { AddOns.inBuildZip(it) } }
+    val listed = remember(s, showNested) { if (showNested) s.entries else s.entries.filterNot { AddOns.inBuildZip(it) } }
     AlertDialog(
         onDismissRequest = { exp.closeInside() },
         title = { Text(ins.link.name, fontSize = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text(rec.title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = tone)
+                Text(mark + rec.verdict, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = tone)
+                if (rec.installable) {
+                    Text(
+                        "Not an official release: nobody has checked these files, and \"compatible\" does not promise that it works. " +
+                            "TRY TO INSTALL only hands them to the Install page, where you confirm again. The version now on the " +
+                            "head unit is kept there as a way back.",
+                        fontSize = 11.sp,
+                        color = muted,
+                        modifier = Modifier.padding(top = 3.dp),
+                    )
+                }
+                Text(rec.title, fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 8.dp))
                 if (exp.insideKept.isNotEmpty()) Text(exp.insideKept, fontSize = 12.sp, color = Green, modifier = Modifier.padding(top = 3.dp))
                 for (f in rec.facts) Text("• $f", fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp))
                 for (p in rec.problems) Text("• $p", fontSize = 12.sp, color = Red, modifier = Modifier.padding(top = 3.dp))
@@ -66,12 +92,12 @@ internal fun InsideDialog(exp: ExperimentalController, ins: ExperimentalControll
                 }
 
                 Text(
-                    "Files (${s.entries.size})",
+                    "Files (${s.entries.size - nested}" + (if (nested > 0) " and $nested inside the plugin's zips" else "") + ")",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(top = 12.dp),
                 )
-                for (e in s.entries.take(60)) {
+                for (e in listed.take(60)) {
                     Column(Modifier.padding(top = 5.dp)) {
                         Text(e.path, fontSize = 11.sp, fontFamily = FontFamily.Monospace, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(
@@ -82,7 +108,12 @@ internal fun InsideDialog(exp: ExperimentalController, ins: ExperimentalControll
                         )
                     }
                 }
-                if (s.entries.size > 60) Text("… and ${s.entries.size - 60} more", fontSize = 11.sp, color = muted, modifier = Modifier.padding(top = 5.dp))
+                if (listed.size > 60) Text("… and ${listed.size - 60} more", fontSize = 11.sp, color = muted, modifier = Modifier.padding(top = 5.dp))
+                if (nested > 0) {
+                    TextButton(onClick = { showNested = !showNested }) {
+                        Text(if (showNested) "HIDE THE FILES INSIDE THE PLUGIN'S ZIPS" else "SHOW THE $nested FILES INSIDE THE PLUGIN'S ZIPS", fontSize = 11.sp)
+                    }
+                }
                 for (n in s.notes) Text(n, fontSize = 11.sp, color = muted, modifier = Modifier.padding(top = 4.dp))
 
                 Text(
@@ -131,7 +162,7 @@ internal fun InsideDialog(exp: ExperimentalController, ins: ExperimentalControll
         },
         confirmButton = {
             if (rec.installable) {
-                TextButton(onClick = { exp.installInside() }) { Text("GET FOR INSTALL") }
+                TextButton(onClick = { exp.installInside() }) { Text("TRY TO INSTALL") }
             }
         },
         dismissButton = {

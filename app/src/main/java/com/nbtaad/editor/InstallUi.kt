@@ -290,7 +290,7 @@ fun InstallScreen(vm: MainViewModel) {
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(
                     onClick = { picker.launch(arrayOf("*/*")) },
-                    enabled = !inst.working,
+                    enabled = !inst.working && !inst.noUnit,
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("A file from this phone…") }
                 Text(
@@ -325,7 +325,7 @@ fun InstallScreen(vm: MainViewModel) {
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(
                     onClick = { inst.openRevert() },
-                    enabled = !inst.working && inst.unit?.hasPrevious != false,
+                    enabled = !inst.working && !inst.noUnit && inst.unit?.hasPrevious != false,
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Go back to the previous version") }
                 if (inst.unit?.hasPrevious == false) {
@@ -347,9 +347,9 @@ fun InstallScreen(vm: MainViewModel) {
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(
                     onClick = { inst.openUninstall() },
-                    enabled = !inst.working,
+                    enabled = !inst.working && !inst.noUnit,
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("Uninstall Android Auto…", color = if (inst.working) Color.Unspecified else Red) }
+                ) { Text("Uninstall Android Auto…", color = if (inst.working || inst.noUnit) Color.Unspecified else Red) }
             }
         }
     }
@@ -395,7 +395,7 @@ private fun ShelfCard(inst: InstallController) {
                         color = if (item.installedAt != null) Green else muted,
                     )
                     Row {
-                        TextButton(onClick = { inst.useShelf(item) }, enabled = !inst.working) { Text("CHOOSE", fontSize = 12.sp) }
+                        TextButton(onClick = { inst.useShelf(item) }, enabled = !inst.working && !inst.noUnit) { Text("CHOOSE", fontSize = 12.sp) }
                         TextButton(onClick = { inst.removeFromShelf(item) }, enabled = !inst.working) { Text("REMOVE", fontSize = 12.sp) }
                     }
                 }
@@ -428,6 +428,15 @@ private fun UnitCard(inst: InstallController, onChange: () -> Unit) {
                     LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 6.dp))
                 }
                 else -> Text("Not read yet.", fontSize = 12.sp)
+            }
+            if (inst.noUnit && inst.unitError) {
+                Text(
+                    "Without a head unit the buttons below that act on it are off: choosing a file or a release, installing, " +
+                        "going back and uninstalling.",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
             }
             Row {
                 TextButton(onClick = { inst.readUnit() }, enabled = !inst.working) { Text("CHECK AGAIN", fontSize = 12.sp) }
@@ -650,7 +659,7 @@ private fun ReleaseRow(inst: InstallController, r: ReleaseInfo) {
             Spacer(Modifier.width(8.dp))
             InfoDot { info = true }
             Spacer(Modifier.width(8.dp))
-            OutlinedButton(onClick = { inst.useRelease(r) }, enabled = !inst.working) { Text("USE") }
+            OutlinedButton(onClick = { inst.useRelease(r) }, enabled = !inst.working && !inst.noUnit) { Text("USE") }
         }
     }
 }
@@ -729,12 +738,18 @@ private fun PackageCard(inst: InstallController, v: PackageView) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Button(
                     onClick = { inst.askInstall = true },
-                    enabled = pkg.installable && !inst.working,
+                    enabled = pkg.installable && !inst.working && !inst.noUnit,
                 ) { Text("INSTALL ON THE HEAD UNIT") }
                 Spacer(Modifier.width(8.dp))
                 TextButton(onClick = { inst.clearChoice() }, enabled = !inst.working) { Text("Clear") }
             }
-            if (!inst.hasHost) {
+            if (inst.noUnit) {
+                Text(
+                    "No head unit was found, so INSTALL is off. Connect to the car, then press CHECK AGAIN at the top.",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else if (!inst.hasHost) {
                 Text(
                     "No car is connected yet: the app looks for it first when you press INSTALL.",
                     fontSize = 11.sp,

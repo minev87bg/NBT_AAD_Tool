@@ -79,6 +79,9 @@ object Reach {
     }
 }
 
+/** No head unit answered: an ordinary case (the phone is not near the car), not a fault, so it is not logged as an error. */
+class NoUnitFound(message: String) : IOException(message)
+
 /**
  * Runs [block] with the head unit's address. Where there is no address yet (the first screen was skipped, or the car
  * changed) the car is looked for first, and when no SSH connection can be made, it is looked for again: [rescan] does
@@ -99,7 +102,7 @@ fun <T> runOnHeadUnit(
         onRescan()
         looked = true
         rescan()
-    } ?: throw IOException(whyNot() ?: Reach.NO_UNIT)
+    } ?: throw NoUnitFound(whyNot() ?: Reach.NO_UNIT)
     try {
         return block(first)
     } catch (e: SshUnreachable) {

@@ -15,6 +15,7 @@ import com.nbtaad.editor.net.NetworkBinder
 import com.nbtaad.editor.net.Reach
 import com.nbtaad.editor.net.Online
 import com.nbtaad.editor.net.friendlyError
+import com.nbtaad.editor.net.NoUnitFound
 import com.nbtaad.editor.net.runOnHeadUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -123,6 +124,12 @@ class InstallController(
 
     /** Is there a head unit to work on? Not when the first screen found none or was skipped. */
     val hasHost: Boolean get() = host() != null
+
+    /**
+     * True once the look at the head unit is over and found nothing: no car, or one that did not answer. Everything
+     * that acts on the head unit has nothing to act on then, so the page switches those buttons off.
+     */
+    val noUnit: Boolean get() = unit == null && !unitBusy
 
     /** Called when the screen opens: loads what is cheap and read-only. */
     fun open() {
@@ -322,7 +329,8 @@ class InstallController(
                 unitMessage = ""
                 unit?.let { AppLog.i("Unit", "Status: ${it.describe()}") }
             } catch (e: Exception) {
-                AppLog.e("Unit", "Reading the head unit failed", e)
+                if (e is NoUnitFound) AppLog.w("Unit", "No head unit found: ${e.message}")
+                else AppLog.e("Unit", "Reading the head unit failed", e)
                 unitError = true
                 unitMessage = friendlyError(e)
             } finally {

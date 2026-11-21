@@ -13,7 +13,8 @@ import com.nbtaad.editor.install.ReleaseLogic
  * own recipes (see [AddOns]) do.
  */
 object AddOnAi {
-    const val MAX_TOKENS = 1100
+    /** Room for the five short parts of the answer, with plenty to spare. */
+    const val MAX_TOKENS = 2500
 
     /** What the app can do, told to the model so that its verdict is about this app and not about apps in general. */
     private const val CAPABILITIES =
@@ -157,6 +158,6 @@ object AddOnAi {
     }
 
     fun requestJson(userMessage: String, model: String = AiLogic.MODEL): String =
-        "{\"model\":${AiLogic.jsonString(model)},\"max_tokens\":$MAX_TOKENS,\"system\":${AiLogic.jsonString(SYSTEM_PROMPT)}," +
+        "{\"model\":${AiLogic.jsonString(model)},\"max_tokens\":$MAX_TOKENS,${AiLogic.THINKING_OFF}\"system\":${AiLogic.jsonString(SYSTEM_PROMPT)}," +
             "\"messages\":[{\"role\":\"user\",\"content\":${AiLogic.jsonString(userMessage)}}]}"
 }

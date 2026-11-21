@@ -11,6 +11,12 @@ object AiLogic {
     const val API_URL = "https://api.anthropic.com/v1/messages"
     const val API_VERSION = "2023-06-01"
 
+    /**
+     * Part of every request: no thinking before the answer. A newer model may use its whole output allowance on
+     * thinking and stop with no text ("max_tokens"), which is what the file check did on a long file list.
+     */
+    const val THINKING_OFF = "\"thinking\":{\"type\":\"disabled\"},"
+
     const val SYSTEM_PROMPT =
         "You summarize one GitHub issue or pull request of the open-source project Supra-iDrive6-Android-Auto " +
             "(NBT-AAD: a native Android Auto daemon for BMW / Toyota Supra NBT Evo head units; its settings are " +
@@ -118,7 +124,7 @@ object AiLogic {
     }
 
     fun requestJson(t: Topic, comments: List<Comment>, model: String = MODEL): String =
-        "{\"model\":${jsonString(model)},\"max_tokens\":$MAX_TOKENS,\"system\":${jsonString(SYSTEM_PROMPT)}," +
+        "{\"model\":${jsonString(model)},\"max_tokens\":$MAX_TOKENS,$THINKING_OFF\"system\":${jsonString(SYSTEM_PROMPT)}," +
             "\"messages\":[{\"role\":\"user\",\"content\":${jsonString(userMessage(t, comments))}}]}"
 
     /** The text of an answer (all text parts joined); null when there is none. */
@@ -128,6 +134,14 @@ object AiLogic {
         val text = parts.mapNotNull { it.asObj() }.filter { it.str("type") == "text" }.joinToString("") { it.str("text") }.trim()
         return text.ifEmpty { null }
     }
+
+    /** The kinds of the parts of an answer ("thinking, text"), for the log when there was no text. */
+    fun blockTypes(json: String): String = try {
+        Json.parse(json).asObj()?.get("content").asList().orEmpty().mapNotNull { it.asObj()?.str("type") }.joinToString(", ").ifEmpty { "none" }
+    } catch (_: Exception) { "unreadable" }
+
+    /** True when the API refused the request because of the thinking setting (then it is sent again without it). */
+    fun rejectsThinking(status: Int, body: String): Boolean = status == 400 && body.contains("thinking", ignoreCase = true)
 
     /** The reason an answer was cut short, when it was ("max_tokens"). */
     fun stopReason(json: String): String =

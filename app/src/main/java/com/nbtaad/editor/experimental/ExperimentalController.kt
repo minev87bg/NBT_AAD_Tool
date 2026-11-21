@@ -92,8 +92,17 @@ class ExperimentalController(
     /** The address of the file that VIEW was last pressed for: the busy sign and the message belong under its buttons. */
     var textFor by mutableStateOf(""); private set
 
-    /** The address of the file that GET FOR INSTALL was last pressed for. */
+    /** The address of the file that TRY TO INSTALL was last pressed for (when it had to be downloaded again). */
     var downloadFor by mutableStateOf(""); private set
+
+    /** What a scan said about one file, kept by its address so the file's row can say it without a new download. */
+    class ScanNote(val verdict: String, val level: Recognition.Level, val installable: Boolean)
+
+    /** The files that were looked inside, newest last; at most [MAX_SCANS]. */
+    var scans by mutableStateOf<Map<String, ScanNote>>(emptyMap()); private set
+
+    /** The last scanned build that the installer takes, kept in memory (when small) so TRY TO INSTALL needs no new download. */
+    private var held: Inside? = null
 
     /** What LOOK INSIDE found in a shared file: the files in it, what the app makes of them, and the AI's reading of it. */
     class Inside(val link: FileLink, val topic: Topic, val file: SourceFile, val survey: Survey, val recognition: Recognition)
@@ -224,6 +233,7 @@ class ExperimentalController(
         textFor = ""
         downloadFor = ""
         gallery = null
+        if (held?.topic?.number != t.number) held = null
         val cached = commentCache[t.number]
         when {
             cached != null -> comments = cached
@@ -401,9 +411,24 @@ class ExperimentalController(
         summary = if (summary != null) null else Digest.of(t, comments ?: emptyList())
     }
 
-    fun download(link: FileLink) {
+    /**
+     * TRY TO INSTALL on a file's row: only for a file that LOOK INSIDE found installable. The file that was scanned is
+     * taken as it is; when it is no longer in memory it is downloaded again first. The installer checks it once more.
+     */
+    fun tryInstall(link: FileLink) {
         val t = selected ?: return
-        if (downloadBusy || !link.installable) return
+        if (downloadBusy || insideBusy || scans[link.url]?.installable != true) return
+        val h = held
+        if (h != null && h.link.url == link.url) {
+            held = null
+            AppLog.i("Experimental", "Taking ${link.name} (scanned, still in memory) to the installer")
+            scope.launch(Dispatchers.IO) { onFile(h.file, h.topic, h.link) }
+            return
+        }
+        fetchAndHandOver(t, link)
+    }
+
+    private fun fetchAndHandOver(t: Topic, link: FileLink) {
         downloadBusy = true
         downloadFor = link.url
         downloadError = false
@@ -449,6 +474,8 @@ class ExperimentalController(
                 insideAi = null
                 insideAiMessage = ""
                 insideKept = ""
+                scans = (scans + (link.url to ScanNote(rec.verdict, rec.level, rec.installable))).entries
+                    .toList().takeLast(MAX_SCANS).associate { it.key to it.value }
                 inside = Inside(link, t, f, survey, rec)
                 insideMessage = ""
             } catch (e: Exception) {
@@ -461,11 +488,12 @@ class ExperimentalController(
         }
     }
 
-    /** GET FOR INSTALL from the window: the file that was looked at goes to the installer, without a second download. */
+    /** TRY TO INSTALL from the window: the file that was looked at goes to the installer, without a second download. */
     fun installInside() {
         val ins = inside ?: return
         if (!ins.recognition.installable) return
         closeInside()
+        held = null
         AppLog.i("Experimental", "Taking ${ins.link.name} (already downloaded) to the installer")
         scope.launch(Dispatchers.IO) { onFile(ins.file, ins.topic, ins.link) }
     }
@@ -487,6 +515,8 @@ class ExperimentalController(
     }
 
     fun closeInside() {
+        // a small scanned build stays in memory, so TRY TO INSTALL on the file's row needs no new download
+        inside?.let { if (it.recognition.installable && it.file.bytes.size <= HELD_MAX) held = it }
         inside = null
         insideAi = null
         insideAiMessage = ""
@@ -530,5 +560,13 @@ class ExperimentalController(
                 insideAiBusy = false
             }
         }
+    }
+
+    private companion object {
+        /** How many scan notes are kept. */
+        const val MAX_SCANS = 40
+
+        /** A scanned build larger than this is not kept in memory after the window closes (it is downloaded again). */
+        const val HELD_MAX = 40 * 1024 * 1024
     }
 }

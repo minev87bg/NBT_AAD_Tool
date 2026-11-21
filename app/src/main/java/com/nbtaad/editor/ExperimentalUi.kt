@@ -68,6 +68,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nbtaad.editor.addon.Recognition
 import com.nbtaad.editor.experimental.Comment
 import com.nbtaad.editor.experimental.Contributors
 import com.nbtaad.editor.experimental.ExperimentalController
@@ -710,7 +711,8 @@ private fun FilesCard(exp: ExperimentalController, files: List<FileLink>, onOpen
 
 /**
  * The buttons of one file, chosen by what the file is: VIEW for readable text (also for a file whose name does not say,
- * once the app has looked into it), GET FOR INSTALL for a part of a build, OPEN IN BROWSER for the rest. In the list of
+ * once the app has looked into it), LOOK INSIDE for a part of a build (and TRY TO INSTALL after that scan found it
+ * installable, with the scan's verdict under the buttons), OPEN IN BROWSER for the rest. In the list of
  * files [onPost] is set and adds VIEW POST; under a link in a post the link itself opens the browser, so that button is
  * shown there only for a file nothing else can be done with.
  */
@@ -718,6 +720,7 @@ private fun FilesCard(exp: ExperimentalController, files: List<FileLink>, onOpen
 @Composable
 private fun FileActions(exp: ExperimentalController, f: FileLink, onOpen: (String) -> Unit, onPost: (() -> Unit)? = null) {
     val readable = exp.readable(f)
+    val scan = exp.scans[f.url]
     Column {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             when (readable) {
@@ -737,13 +740,29 @@ private fun FileActions(exp: ExperimentalController, f: FileLink, onOpen: (Strin
                     exp.lookInside(f)
                 }
             }
-            if (f.installable) {
-                MiniButton("GET FOR INSTALL", enabled = !exp.downloadBusy) { exp.download(f) }
+            // only after the app has looked inside and found the files installable; the file is not promised to work
+            if (scan?.installable == true) {
+                MiniButton(
+                    if (exp.downloadBusy && exp.downloadFor == f.url) "GETTING…" else "TRY TO INSTALL",
+                    enabled = !exp.downloadBusy && !exp.insideBusy,
+                ) { exp.tryInstall(f) }
             }
             if (onPost != null || (readable == false && !f.installable)) {
                 MiniButton("OPEN IN BROWSER") { onOpen(f.url) }
             }
             if (onPost != null) MiniButton("VIEW POST", onClick = onPost)
+        }
+        scan?.let {
+            Text(
+                it.verdict,
+                fontSize = 11.sp,
+                color = when (it.level) {
+                    Recognition.Level.READY -> Green
+                    Recognition.Level.NOT_HERE -> Amber
+                    Recognition.Level.NO -> Red
+                },
+                modifier = Modifier.padding(top = 4.dp),
+            )
         }
         if (exp.textFor == f.url) {
             if (exp.textBusy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 4.dp))
