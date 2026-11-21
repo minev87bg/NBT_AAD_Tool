@@ -5,6 +5,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.nbtaad.editor.addon.AddOnAi
+import com.nbtaad.editor.addon.AddOns
+import com.nbtaad.editor.addon.Recognition
+import com.nbtaad.editor.addon.Survey
+import com.nbtaad.editor.addon.ZipSurvey
 import com.nbtaad.editor.data.CommunityPrefs
 import com.nbtaad.editor.install.SourceFile
 import com.nbtaad.editor.log.AppLog
@@ -87,6 +92,20 @@ class ExperimentalController(
 
     /** The address of the file that GET FOR INSTALL was last pressed for. */
     var downloadFor by mutableStateOf(""); private set
+
+    /** What LOOK INSIDE found in a shared file: the files in it, what the app makes of them, and the AI's reading of it. */
+    class Inside(val link: FileLink, val topic: Topic, val survey: Survey, val recognition: Recognition)
+
+    var inside by mutableStateOf<Inside?>(null); private set
+    var insideBusy by mutableStateOf(false); private set
+    var insideMessage by mutableStateOf(""); private set
+    var insideError by mutableStateOf(false); private set
+
+    /** The address of the file that LOOK INSIDE was last pressed for. */
+    var insideFor by mutableStateOf(""); private set
+    var insideAi by mutableStateOf<String?>(null); private set
+    var insideAiBusy by mutableStateOf(false); private set
+    var insideAiMessage by mutableStateOf(""); private set
 
     // files whose name does not say what they are: the first bytes were looked at, true when they are readable text
     private val looked = mutableStateMapOf<String, Boolean>()
@@ -395,6 +414,88 @@ class ExperimentalController(
                 downloadMessage = "Could not get ${link.name}: ${Online.describe(e)}"
             } finally {
                 downloadBusy = false
+            }
+        }
+    }
+
+    /**
+     * LOOK INSIDE: downloads the file into memory (nothing is saved), lists what is in it and says what the app makes of
+     * it. Nothing is installed and nothing is sent anywhere.
+     */
+    fun lookInside(link: FileLink) {
+        val t = selected ?: return
+        if (insideBusy || link.kind != FileKind.BUILD) return
+        insideBusy = true
+        insideFor = link.url
+        insideError = false
+        insideMessage = "Downloading ${link.name}…"
+        scope.launch(Dispatchers.IO) {
+            try {
+                val f = IssuesApi.download(ctx, link) { insideMessage = "Downloading ${link.name}… ${it / 1024} KB" }
+                insideMessage = "Looking inside…"
+                val survey = ZipSurvey.survey(f.name, f.bytes)
+                val rec = AddOns.recognize(survey)
+                AppLog.i(
+                    "AddOn",
+                    "Looked inside ${link.name} of #${t.number}: ${survey.entries.size} files, ${rec.match}" +
+                        (rec.addOn?.let { " ($it)" } ?: "") + (if (rec.installable) ", installable" else "") +
+                        (survey.sums?.let { ", checksums ${if (it.allMatch) "match" else "DIFFER"}" } ?: ""),
+                )
+                insideAi = null
+                insideAiMessage = ""
+                inside = Inside(link, t, survey, rec)
+                insideMessage = ""
+            } catch (e: Exception) {
+                AppLog.e("Experimental", "Looking inside ${link.name} failed", e)
+                insideError = true
+                insideMessage = "Could not look inside ${link.name}: ${Online.describe(e)}"
+            } finally {
+                insideBusy = false
+            }
+        }
+    }
+
+    fun closeInside() {
+        inside = null
+        insideAi = null
+        insideAiMessage = ""
+    }
+
+    /**
+     * The AI check: Claude reads the post, the file list, the scripts and the README of a linked GitHub project, and says
+     * whether the app can apply the file. It only describes; nothing it writes is run.
+     */
+    fun askAboutInside() {
+        val ins = inside ?: return
+        if (insideAiBusy) return
+        val key = keys.get()
+        if (key == null) {
+            openKeyDialog()
+            return
+        }
+        if (commentsBusy) {
+            insideAiMessage = "The comments are still loading. Try again in a moment."
+            return
+        }
+        val list = if (selected?.number == ins.topic.number) comments ?: emptyList() else emptyList()
+        insideAiBusy = true
+        insideAiMessage = ""
+        scope.launch(Dispatchers.IO) {
+            try {
+                val repos = AddOnAi.repoLinks(AddOnAi.postTexts(ins.topic, list))
+                val readmes = repos.mapNotNull { (o, r) -> IssuesApi.readme(ctx, o, r)?.let { "$o/$r" to it } }
+                val message = AddOnAi.userMessage(ins.topic, list, ins.survey, ins.recognition, readmes)
+                AppLog.i(
+                    "AI",
+                    "Asking ${AiLogic.MODEL} about ${ins.link.name}: ${message.length} characters, ${readmes.size} README of ${repos.size} linked project(s)",
+                )
+                val text = AiClient.send(ctx, key, AddOnAi.requestJson(message), "File check")
+                if (inside === ins) insideAi = text
+            } catch (e: Exception) {
+                AppLog.w("AI", "File check failed: ${e.javaClass.simpleName}: ${e.message}")
+                if (inside === ins) insideAiMessage = Online.describe(e)
+            } finally {
+                insideAiBusy = false
             }
         }
     }

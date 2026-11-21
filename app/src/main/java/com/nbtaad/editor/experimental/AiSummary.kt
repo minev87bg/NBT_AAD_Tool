@@ -31,9 +31,15 @@ object AiClient {
 
     /** The summary as Markdown. Throws [AiException] with a sentence for the person when Anthropic refuses. */
     fun summarize(ctx: Context, key: String, topic: Topic, comments: List<Comment>): String {
-        val body = AiLogic.requestJson(topic, comments).toByteArray(Charsets.UTF_8)
+        val body = AiLogic.requestJson(topic, comments)
+        AppLog.i("AI", "Asking ${AiLogic.MODEL} to summarize #${topic.number}: ${body.length} characters, ${comments.size} comments")
+        return send(ctx, key, body, "Summary")
+    }
+
+    /** Sends one prepared request ([bodyJson]) to the Messages API and returns the text of the answer. */
+    fun send(ctx: Context, key: String, bodyJson: String, what: String): String {
+        val body = bodyJson.toByteArray(Charsets.UTF_8)
         val started = System.currentTimeMillis()
-        AppLog.i("AI", "Asking ${AiLogic.MODEL} to summarize #${topic.number}: ${body.size} bytes, ${comments.size} comments")
         val text = Internet.run(ctx) { open ->
             val c = open(URL(AiLogic.API_URL))
             try {
@@ -59,7 +65,7 @@ object AiClient {
                 c.disconnect()
             }
         }
-        AppLog.i("AI", "Summary written in ${System.currentTimeMillis() - started} ms, ${text.length} characters")
+        AppLog.i("AI", "$what written in ${System.currentTimeMillis() - started} ms, ${text.length} characters")
         return text
     }
 }

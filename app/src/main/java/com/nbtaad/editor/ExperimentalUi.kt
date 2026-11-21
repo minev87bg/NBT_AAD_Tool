@@ -549,6 +549,7 @@ private fun TopicDetail(vm: MainViewModel, t: Topic) {
         }
     }
     if (vm.wizard.askMode) PrepareChoiceDialog(vm, t)
+    exp.inside?.let { InsideDialog(exp, it) }
     if (exp.aiKeyDialog) AiKeyDialog(exp)
     exp.textDoc?.let { doc -> TextFileDialog(doc) { exp.closeText() } }
     exp.gallery?.let { g -> GalleryDialog(g) { exp.closeGallery() } }
@@ -731,6 +732,11 @@ private fun FileActions(exp: ExperimentalController, f: FileLink, onOpen: (Strin
                 )
                 false -> {}
             }
+            if (f.kind == FileKind.BUILD) {
+                MiniButton(if (exp.insideBusy && exp.insideFor == f.url) "LOOKING…" else "LOOK INSIDE", enabled = !exp.insideBusy) {
+                    exp.lookInside(f)
+                }
+            }
             if (f.installable) {
                 MiniButton("GET FOR INSTALL", enabled = !exp.downloadBusy) { exp.download(f) }
             }
@@ -742,6 +748,12 @@ private fun FileActions(exp: ExperimentalController, f: FileLink, onOpen: (Strin
         if (exp.textFor == f.url) {
             if (exp.textBusy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 4.dp))
             if (exp.textMessage.isNotEmpty()) Text(exp.textMessage, fontSize = 12.sp, color = Red)
+        }
+        if (exp.insideFor == f.url) {
+            if (exp.insideBusy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 4.dp))
+            if (exp.insideMessage.isNotEmpty()) {
+                Text(exp.insideMessage, fontSize = 12.sp, color = if (exp.insideError) Red else MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
         if (exp.downloadFor == f.url) {
             if (exp.downloadBusy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 4.dp))

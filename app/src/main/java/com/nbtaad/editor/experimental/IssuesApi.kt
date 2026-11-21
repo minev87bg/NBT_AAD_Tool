@@ -149,6 +149,57 @@ object IssuesApi {
         }
     }
 
+    /**
+     * The README of a GitHub project that a post links, as text, or null when there is none (or it cannot be read). It
+     * comes from raw.githubusercontent.com, which does not count against the API's request limit. Nothing is saved.
+     */
+    fun readme(ctx: Context, owner: String, repo: String, maxBytes: Int = 60 * 1024): String? {
+        for (name in listOf("README.md", "readme.md", "README")) {
+            val url = "https://raw.githubusercontent.com/$owner/$repo/HEAD/$name"
+            val text = try {
+                Internet.run(ctx) { open ->
+                    val c = open(URL(url))
+                    try {
+                        c.connectTimeout = 8000
+                        c.readTimeout = 20000
+                        c.instanceFollowRedirects = true
+                        c.setRequestProperty("User-Agent", "NBT-AAD-Tool")
+                        val code = c.responseCode
+                        if (code == 404) return@run null
+                        if (code != 200) throw IOException("GitHub answered $code for $name")
+                        val out = ByteArrayOutputStream()
+                        val buf = ByteArray(16 * 1024)
+                        var cut = false
+                        c.inputStream.use { input ->
+                            while (true) {
+                                val room = maxBytes - out.size()
+                                if (room <= 0) {
+                                    cut = input.read() >= 0
+                                    break
+                                }
+                                val n = input.read(buf, 0, minOf(buf.size, room))
+                                if (n < 0) break
+                                out.write(buf, 0, n)
+                            }
+                        }
+                        val bytes = out.toByteArray()
+                        if (Links.looksLikePage(bytes)) null else TextFiles.decode(bytes, cut)
+                    } finally {
+                        c.disconnect()
+                    }
+                }
+            } catch (e: Exception) {
+                AppLog.w("GitHub", "No README of $owner/$repo: ${e.javaClass.simpleName}: ${e.message}")
+                null
+            }
+            if (text != null) {
+                AppLog.i("GitHub", "Read $name of $owner/$repo: ${text.length} characters")
+                return text
+            }
+        }
+        return null
+    }
+
     /** Downloads a file that was linked in a page. A sign-in page instead of the file is reported as such. */
     fun download(ctx: Context, link: FileLink, progress: (Long) -> Unit): SourceFile = Internet.run(ctx) { open ->
         val c = open(URL(link.url))
