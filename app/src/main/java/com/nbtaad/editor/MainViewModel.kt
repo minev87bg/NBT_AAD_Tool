@@ -119,9 +119,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         onFile = { file, topic, link ->
             val kind = if (topic.isPr) "pull request" else "issue"
             AppLog.i("Experimental", "Taking ${link.name} from $kind #${topic.number} to the installer")
+            val origin = "$kind #${topic.number}, shared by ${link.by.ifBlank { "someone" }}"
+            // kept on the phone first: it is still there when no car is connected yet, or the app is closed
+            val kept = inst.keepForLater(file, origin, topic.url)
             inst.open()
-            inst.useDownloaded(file, "$kind #${topic.number}, shared by ${link.by.ifBlank { "someone" }}", topic.url)
+            inst.useDownloaded(file, origin, topic.url, shelfId = kept?.id)
             screen = Screen.INSTALL
+        },
+        onKeep = { file, topic, link ->
+            val kind = if (topic.isPr) "pull request" else "issue"
+            inst.keepForLater(file, "$kind #${topic.number}, shared by ${link.by.ifBlank { "someone" }}", topic.url) != null
         },
     )
 

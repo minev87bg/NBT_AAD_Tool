@@ -34,6 +34,8 @@ class ExperimentalController(
     private val isKnownSetting: (String) -> Boolean,
     /** A shared file arrived: it goes on to the installer's page. */
     private val onFile: (SourceFile, Topic, FileLink) -> Unit,
+    /** A shared file is to be kept on the phone for later; true when it was kept (it is an installable build). */
+    private val onKeep: (SourceFile, Topic, FileLink) -> Boolean = { _, _, _ -> false },
 ) {
     enum class Tab { ISSUES, PRS }
 
@@ -106,6 +108,9 @@ class ExperimentalController(
     var insideAi by mutableStateOf<String?>(null); private set
     var insideAiBusy by mutableStateOf(false); private set
     var insideAiMessage by mutableStateOf(""); private set
+
+    /** What happened to SAVE FOR LATER, shown in the window. */
+    var insideKept by mutableStateOf(""); private set
 
     // files whose name does not say what they are: the first bytes were looked at, true when they are readable text
     private val looked = mutableStateMapOf<String, Boolean>()
@@ -443,6 +448,7 @@ class ExperimentalController(
                 )
                 insideAi = null
                 insideAiMessage = ""
+                insideKept = ""
                 inside = Inside(link, t, f, survey, rec)
                 insideMessage = ""
             } catch (e: Exception) {
@@ -464,10 +470,27 @@ class ExperimentalController(
         scope.launch(Dispatchers.IO) { onFile(ins.file, ins.topic, ins.link) }
     }
 
+    /** SAVE FOR LATER: keeps the file on the phone; it waits on the Install page for a connected head unit. */
+    fun keepInside() {
+        val ins = inside ?: return
+        if (!ins.recognition.installable) return
+        scope.launch(Dispatchers.IO) {
+            val ok = try { onKeep(ins.file, ins.topic, ins.link) } catch (e: Exception) {
+                AppLog.e("Experimental", "Keeping ${ins.link.name} failed", e)
+                false
+            }
+            if (inside === ins) {
+                insideKept = if (ok) "Saved on this phone. It waits on the Install page, under \"Saved on this phone\"."
+                else "Could not save it on the phone."
+            }
+        }
+    }
+
     fun closeInside() {
         inside = null
         insideAi = null
         insideAiMessage = ""
+        insideKept = ""
     }
 
     /**

@@ -5,6 +5,8 @@ import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.nbtaad.editor.addon.ShelfItem
+import com.nbtaad.editor.addon.ShelfStore
 import com.nbtaad.editor.env.AppliedOption
 import com.nbtaad.editor.env.AppliedOptions
 import com.nbtaad.editor.env.Opt
@@ -29,6 +31,8 @@ class PackageView(
     val pageUrl: String? = null,
     /** For a file shared in an issue or pull request: which page and who shared it ("#12, shared by bob"). */
     val origin: String? = null,
+    /** Set when the files came from the shelf (kept on the phone): the entry is marked as installed after a good install. */
+    val shelfId: String? = null,
 ) {
     /** Files that Sq00ky published on the project's Releases page. Anything else is the person's own responsibility. */
     val fromProject: Boolean get() = source == SourceKind.RELEASE
@@ -62,6 +66,15 @@ class InstallController(
     /** The list of settings (from the README), which says what the values in nbt-aad.env mean. */
     private val catalog: () -> List<Opt> = { emptyList() },
 ) {
+    // the files kept on the phone for later (see ShelfStore)
+    private val shelfStore = ShelfStore(ctx)
+    var shelf by mutableStateOf<List<ShelfItem>>(emptyList()); private set
+
+    init {
+        // known from the start, so the hub can say that a file is waiting
+        scope.launch(Dispatchers.IO) { shelf = try { shelfStore.list() } catch (_: Exception) { emptyList() } }
+    }
+
     // the project's releases
     var releases by mutableStateOf<List<ReleaseInfo>?>(null)
     var releasesBusy by mutableStateOf(false)
@@ -113,6 +126,7 @@ class InstallController(
 
     /** Called when the screen opens: loads what is cheap and read-only. */
     fun open() {
+        scope.launch(Dispatchers.IO) { shelf = shelfStore.list() }
         if (releases == null && !releasesBusy) loadReleases()
         if (unit == null && !unitBusy) readUnit()
     }
@@ -207,7 +221,7 @@ class InstallController(
 
     // ---------------- a file that someone shared in an issue or pull request ----------------
 
-    fun useDownloaded(file: SourceFile, origin: String, pageUrl: String?) {
+    fun useDownloaded(file: SourceFile, origin: String, pageUrl: String?, shelfId: String? = null) {
         if (working) return
         prepBusy = true
         prepError = false
@@ -217,7 +231,7 @@ class InstallController(
         scope.launch(Dispatchers.IO) {
             try {
                 val pkg = BuildPackage.of(listOf(file))
-                finishPrep(PackageView(pkg, SourceKind.ISSUE, file.name, pageUrl = pageUrl, origin = origin), file.name)
+                finishPrep(PackageView(pkg, SourceKind.ISSUE, file.name, pageUrl = pageUrl, origin = origin, shelfId = shelfId), file.name)
             } catch (e: Exception) {
                 AppLog.e("Releases", "Looking into ${file.name} failed", e)
                 prepError = true
@@ -245,6 +259,43 @@ class InstallController(
         view = null
         prepMessage = ""
         prepError = false
+    }
+
+    // ---------------- files kept on the phone for later ----------------
+
+    /**
+     * Keeps a file that someone shared on the phone, when it is an installable build, so that it is still there after the
+     * app was closed and when no head unit is connected yet. Returns its entry, or null when it was not kept.
+     */
+    fun keepForLater(file: SourceFile, origin: String, pageUrl: String?): ShelfItem? {
+        val item = try { shelfStore.save(file, origin, pageUrl) } catch (e: Exception) {
+            AppLog.e("Shelf", "Could not keep ${file.name}", e)
+            null
+        }
+        shelf = shelfStore.list()
+        return item
+    }
+
+    /** Takes a kept file to the choice above (the same steps as a file just downloaded). */
+    fun useShelf(item: ShelfItem) {
+        if (working) return
+        scope.launch(Dispatchers.IO) {
+            val f = shelfStore.load(item)
+            shelf = shelfStore.list()
+            if (f == null) {
+                prepError = true
+                prepMessage = "${item.name} is not on the phone any more."
+            } else {
+                useDownloaded(f, item.origin.ifBlank { "kept on this phone" }, item.pageUrl, shelfId = item.id)
+            }
+        }
+    }
+
+    fun removeFromShelf(item: ShelfItem) {
+        scope.launch(Dispatchers.IO) {
+            shelfStore.remove(item.id)
+            shelf = shelfStore.list()
+        }
     }
 
     // ---------------- the head unit ----------------
@@ -447,6 +498,15 @@ class InstallController(
                 val headline = "Installed $what" + (out.daemonVersion?.let { " ($it)" } ?: "") + "."
                 addLine(headline, if (out.problems.isEmpty()) Level.OK else Level.WARN)
                 finish(RunStatus.OK, headline, out.problems, pluginChanged = out.plugin)
+                v.shelfId?.let {
+                    // a note on the shelf must never turn a good install into a failed one
+                    try {
+                        shelfStore.markInstalled(it)
+                        shelf = shelfStore.list()
+                    } catch (e: Exception) {
+                        AppLog.w("Shelf", "Could not mark the entry as installed: ${e.message}")
+                    }
+                }
             } catch (e: Exception) {
                 AppLog.e("Install", "Install failed", e)
                 addLine(friendlyError(e), Level.ERROR)

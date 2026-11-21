@@ -1,6 +1,7 @@
 package com.nbtaad.editor
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -52,6 +53,7 @@ internal fun InsideDialog(exp: ExperimentalController, ins: ExperimentalControll
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(rec.title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = tone)
+                if (exp.insideKept.isNotEmpty()) Text(exp.insideKept, fontSize = 12.sp, color = Green, modifier = Modifier.padding(top = 3.dp))
                 for (f in rec.facts) Text("• $f", fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp))
                 for (p in rec.problems) Text("• $p", fontSize = 12.sp, color = Red, modifier = Modifier.padding(top = 3.dp))
                 if (rec.match == Match.UNKNOWN || rec.match == Match.KNOWN_ADDON) {
@@ -132,6 +134,11 @@ internal fun InsideDialog(exp: ExperimentalController, ins: ExperimentalControll
                 TextButton(onClick = { exp.installInside() }) { Text("GET FOR INSTALL") }
             }
         },
-        dismissButton = { TextButton(onClick = { exp.closeInside() }) { Text("CLOSE") } },
+        dismissButton = {
+            Row {
+                if (rec.installable) TextButton(onClick = { exp.keepInside() }) { Text("SAVE FOR LATER") }
+                TextButton(onClick = { exp.closeInside() }) { Text("CLOSE") }
+            }
+        },
     )
 }

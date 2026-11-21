@@ -35,6 +35,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -81,7 +82,9 @@ fun HubScreen(vm: MainViewModel) {
         Spacer(Modifier.height(28.dp))
         HeroTile(
             title = "Install / update",
-            subtitle = "NBT Android Auto",
+            subtitle = "NBT Android Auto" + vm.inst.shelf.count { it.installedAt == null }.let {
+                if (it > 0) " · $it saved file${if (it == 1) "" else "s"} waiting" else ""
+            },
             info = "Install or update the Android Auto daemon and plugin on the head unit, from Sq00ky's Releases page " +
                 "or from a file on this phone. The previous version stays on the head unit and one button goes back to it.",
         ) { vm.chooseInstall() }
@@ -279,6 +282,7 @@ fun InstallScreen(vm: MainViewModel) {
             item(key = "__prep") { PrepStatus(inst) }
         }
         inst.view?.let { v -> item(key = "__package") { PackageCard(inst, v) } }
+        if (inst.shelf.isNotEmpty()) item(key = "__shelf") { ShelfCard(inst) }
 
         item(key = "__choose") {
             Column(Modifier.fillMaxWidth().padding(top = 20.dp)) {
@@ -357,6 +361,47 @@ fun InstallScreen(vm: MainViewModel) {
     inst.diagText?.let { DiagDialog(inst, it) }
     // CHANGE may find an unfinished file of the last session and asks about it, as the choice page does
     if (vm.askDraft) DraftDialog(vm)
+}
+
+private val ShelfDate = java.time.format.DateTimeFormatter.ofPattern("d MMM HH:mm")
+
+private fun shelfTime(ms: Long): String =
+    java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneId.systemDefault()).format(ShelfDate)
+
+/** The files kept on the phone for later: pick one and it goes to the choice above, like a file just downloaded. */
+@Composable
+private fun ShelfCard(inst: InstallController) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    OutlinedCard(Modifier.fillMaxWidth().padding(top = 16.dp)) {
+        Column(Modifier.padding(12.dp)) {
+            Text("Saved on this phone", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            Text(
+                "Files that were kept for when a head unit is connected. Nothing is installed until you choose one, press " +
+                    "INSTALL and confirm.",
+                fontSize = 11.sp,
+                color = muted,
+            )
+            for (item in inst.shelf) {
+                Column(Modifier.padding(top = 10.dp)) {
+                    Text(item.name, fontSize = 13.sp, fontFamily = FontFamily.Monospace, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        listOfNotNull(item.version, item.summary.ifBlank { null }, item.origin.ifBlank { null }).joinToString(" · "),
+                        fontSize = 11.sp,
+                        color = muted,
+                    )
+                    Text(
+                        "saved ${shelfTime(item.savedAt)}" + (item.installedAt?.let { " · installed ${shelfTime(it)}" } ?: ""),
+                        fontSize = 11.sp,
+                        color = if (item.installedAt != null) Green else muted,
+                    )
+                    Row {
+                        TextButton(onClick = { inst.useShelf(item) }, enabled = !inst.working) { Text("CHOOSE", fontSize = 12.sp) }
+                        TextButton(onClick = { inst.removeFromShelf(item) }, enabled = !inst.working) { Text("REMOVE", fontSize = 12.sp) }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
