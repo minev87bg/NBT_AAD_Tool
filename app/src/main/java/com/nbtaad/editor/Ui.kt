@@ -370,7 +370,7 @@ private fun UpdateBanner(vm: MainViewModel) {
 @Composable
 private fun InfoTable(st: DetectState, vm: MainViewModel, modifier: Modifier) {
     Column(modifier.border(1.dp, Color.Gray, RoundedCornerShape(6.dp)).padding(12.dp)) {
-        InfoRow("ZGW", st.zgw ?: "not found")
+        InfoRow("ZGW", st.zgw ?: if (st.viaCarWifi) "not needed (car WiFi)" else "not found")
         InfoRow("Head unit", st.hu ?: "not found")
         InfoRow("VIN", st.vin ?: "unknown")
         Row(

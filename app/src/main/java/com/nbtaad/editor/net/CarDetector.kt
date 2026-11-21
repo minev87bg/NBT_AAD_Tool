@@ -53,6 +53,11 @@ data class DetectResult(
     val huIp: String? = null,
     val sshOpen: Boolean = false,
     val problem: String? = null,
+    /**
+     * The head unit was found as the router of the car's own Android Auto WiFi, where the car gateway is not reachable.
+     * [problem] then says what is wrong with it (the login did not work), if anything.
+     */
+    val viaCarWifi: Boolean = false,
 )
 
 object NetworkBinder {
@@ -298,8 +303,59 @@ object CarDetector {
         return knownRefused to false
     }
 
-    /** The whole detection used by the DETECT CAR button (and by "Check Connection"). */
-    fun detect(progress: (String) -> Unit): DetectResult {
+    private val IPV4 = Regex("""^\d{1,3}(\.\d{1,3}){3}$""")
+
+    /** What the SSH of the head unit calls itself: the OpenSSH of QNX. A router or a dongle says something else (dropbear, ...). */
+    internal fun isHeadUnitBanner(banner: String?): Boolean = banner?.contains("QNX", ignoreCase = true) == true
+
+    /**
+     * The addresses that may be the head unit when the car gateway is not there: the routers, DHCP and DNS servers the
+     * phone was given ([hints]) and the ".1" of each network, only on the phone's own networks and never the phone itself.
+     */
+    internal fun routerCandidates(nets: List<LocalNet>, hints: Collection<String>, max: Int = 4): List<String> {
+        val phone = nets.map { it.ip }.toSet()
+        val subnets = nets.map { CarNetLogic.subnetOf(it.ip) }
+        val seen = LinkedHashSet<String>()
+        for (h in hints + subnets.map { "$it.1" }) {
+            if (h in phone || h == "0.0.0.0" || !IPV4.matches(h)) continue
+            if (subnets.none { CarNetLogic.onSubnet(h, it) }) continue
+            seen += h
+        }
+        return seen.take(max)
+    }
+
+    /**
+     * While Android Auto runs, the phone sits on the car's own WiFi, where the head unit is the router and the car gateway
+     * (ZGW) cannot be reached. A router of the phone's WiFi whose SSH is the head unit's (QNX) is taken as the head unit
+     * there; the login is tried once, so a head unit that answers but does not let the app in is told apart.
+     */
+    internal fun findHeadUnitOnRouter(nets: List<LocalNet>, hints: Collection<String>): DetectResult? {
+        for (c in routerCandidates(nets, hints)) {
+            if (probe(c, SSH_PORT, 1500) != PortState.OPEN) continue
+            val b = banner(c)
+            if (!isHeadUnitBanner(b)) {
+                AppLog.d("Detect", "$c answers on port 22 but is not the head unit (it says \"${b ?: "nothing"}\")")
+                continue
+            }
+            AppLog.i("Detect", "No car gateway, but $c is the router of this WiFi and its SSH says \"$b\": the head unit, over the car's Android Auto WiFi")
+            val folders = localFolders(c)
+            return if (folders < 0) {
+                DetectResult(
+                    huIp = c, sshOpen = false, viaCarWifi = true,
+                    problem = "The head unit answers on SSH over the car's WiFi, but the login did not work. Press DETECT CAR again.",
+                )
+            } else {
+                DetectResult(huIp = c, sshOpen = true, viaCarWifi = true)
+            }
+        }
+        return null
+    }
+
+    /**
+     * The whole detection used by the DETECT CAR button (and by "Check Connection"). [hints]: the routers, DHCP and DNS
+     * servers the phone was given (see [findHeadUnitOnRouter]).
+     */
+    fun detect(hints: Collection<String> = emptyList(), progress: (String) -> Unit): DetectResult {
         progress("Looking at the phone's networks…")
         val nets = localNetworks()
         if (nets.isEmpty()) {
@@ -331,6 +387,11 @@ object CarDetector {
         }
         // no VIN, no car: a device that merely has the port open is not a gateway
         if (zgw == null || vin == null) {
+            progress("No car gateway here. Looking for the head unit on this WiFi…")
+            findHeadUnitOnRouter(nets, hints)?.let { r ->
+                AppLog.i("Detect", "Result: head unit ${r.huIp} over the car's own WiFi (no gateway), SSH open ${r.sshOpen}")
+                return r
+            }
             return DetectResult(
                 problem = "No car detected. Verify the WiFi connection (phone, dongle and car in the same " +
                     "network) and press DETECT CAR again."

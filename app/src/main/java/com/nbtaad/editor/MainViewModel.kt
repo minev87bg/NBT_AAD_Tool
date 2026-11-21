@@ -65,6 +65,8 @@ data class DetectState(
     val hu: String? = null,
     val vin: String? = null,
     val ssh: Boolean = false,
+    /** The head unit was reached over the car's own Android Auto WiFi: there is no car gateway on that network. */
+    val viaCarWifi: Boolean = false,
 )
 
 data class DialogLine(val text: String, val kind: LineKind = LineKind.INFO)
@@ -403,6 +405,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // Detect
     // =====================================================================
 
+    /** The detection with what Android says about the phone's networks (the routers: on the car's own WiFi that is the head unit). */
+    private fun detectCar(progress: (String) -> Unit): DetectResult {
+        val hints = try {
+            PortProbe.netFacts(ctx).let { it.gateways + it.dhcp + it.dns }
+        } catch (_: Exception) {
+            emptyList()
+        }
+        return CarDetector.detect(hints, progress)
+    }
+
     fun onDetect() {
         if (busy) return
         pollJob?.cancel()
@@ -415,7 +427,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 NetworkBinder.bindToLocalNetwork(ctx)
-                val r = CarDetector.detect { feedback = it }
+                val r = detectCar { feedback = it }
                 applyResult(r)
             } catch (e: Exception) {
                 AppLog.e("Detect", "Detection failed", e)
@@ -429,9 +441,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun applyResult(r: DetectResult) {
         AppLog.i("Detect", "Applied: gateway ${r.zgwIp}, VIN ${r.vin}, head unit ${r.huIp}, SSH ${r.sshOpen}, problem ${r.problem}")
-        detect = DetectState(r.zgwIp != null, r.zgwIp, r.huIp, r.vin, r.sshOpen)
+        detect = DetectState(r.zgwIp != null || r.viaCarWifi, r.zgwIp, r.huIp, r.vin, r.sshOpen, r.viaCarWifi)
         feedbackError = false
         feedback = when {
+            r.viaCarWifi && r.sshOpen -> "Connected through the car's Android Auto WiFi (no car gateway needed). SSH is open. Press NEXT."
+            r.viaCarWifi -> {
+                feedbackError = true
+                r.problem ?: "The head unit answers over the car's WiFi, but SSH did not work. Press DETECT CAR again."
+            }
             r.zgwIp == null -> {
                 feedbackError = true
                 r.problem ?: "No car detected."
@@ -603,7 +620,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 NetworkBinder.bindToLocalNetwork(ctx)
                 AppLog.i("Reset", "Reset requested (from a result window: $fromWindow). Known: gateway ${detect.zgw}, head unit ${detect.hu}")
-                val scan = CarDetector.detect { if (!fromWindow) feedback = it else AppLog.i("Detect", it) }
+                val scan = detectCar { if (!fromWindow) feedback = it else AppLog.i("Detect", it) }
                 var gw = detect.zgw
                 if (scan.zgwIp != null) {
                     gw = scan.zgwIp
@@ -677,7 +694,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private fun rescanForHost(): String? {
         NetworkBinder.bindToLocalNetwork(ctx)
         AppLog.i("Detect", if (detect.hu == null) "Looking for the car (no car is known yet)" else "Looking for the car again (no SSH connection)")
-        val r = CarDetector.detect { AppLog.i("Detect", it) }
+        val r = detectCar { AppLog.i("Detect", it) }
         applyResult(r)
         val host = if (r.sshOpen) r.huIp else null
         scanProblem = if (host != null) null else feedback
@@ -1119,9 +1136,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 NetworkBinder.bindToLocalNetwork(ctx)
-                val r = CarDetector.detect { addLine(DialogLine(it)) }
+                val r = detectCar { addLine(DialogLine(it)) }
                 applyResult(r)
-                if (r.zgwIp != null && r.huIp != null && r.sshOpen) {
+                if ((r.zgwIp != null || r.viaCarWifi) && r.huIp != null && r.sshOpen) {
                     addLine(DialogLine("Connection OK (head unit ${r.huIp}). Press Retry to upload again.", LineKind.OK))
                     setStatus(SaveStatus.FAIL, connectionOk = true)
                 } else {
