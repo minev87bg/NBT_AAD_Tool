@@ -496,7 +496,7 @@ private fun UnitBody(inst: InstallController, u: UnitStatus, onChange: () -> Uni
         }
     }
     if (u.pluginDir == null) {
-        Text("The plugin folder was not found on the head unit.", fontSize = 12.sp, color = Amber, modifier = Modifier.padding(top = 4.dp))
+        Text("The plugin folder was not found on the head unit. A full install makes it.", fontSize = 12.sp, color = Amber, modifier = Modifier.padding(top = 4.dp))
     }
 
     // ---- the settings that nbt-aad.env applies ----

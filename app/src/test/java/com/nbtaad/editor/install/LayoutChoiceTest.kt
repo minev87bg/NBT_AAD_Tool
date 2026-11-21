@@ -110,6 +110,84 @@ class LayoutChoiceTest {
     }
 
     @Test
+    fun aMissingNbtAadFolderStillHasAPlaceInThePluginsFolder() {
+        // after an uninstall (NBTApps' or this app's): /opt/aa is left over, the Plugins folder stays, NbtAad in it is gone
+        val parent = "/opt/hmi/ID5/data/ro/Plugins"
+        val lay = HeadUnit.layoutOf(out("P ", "AA /opt/aa", "PP $parent", "P /net/hu-omap/fs/sda0", "AA $aaDir"))!!
+        assertNull(lay.plugin)
+        assertEquals(parent, lay.pluginsParent)
+        assertEquals("$parent/NbtAad", lay.pluginTarget)
+        // with the folder there it is the folder, whatever the parent says
+        val with = HeadUnit.layoutOf(out("P /net/hu-omap/fs/sda0", "AA $aaDir", "PL $plugin", "PP ${plugin.removeSuffix("/NbtAad")}"))!!
+        assertEquals(plugin, with.pluginTarget)
+        // no Plugins folder: nowhere to put one
+        assertNull(HeadUnit.layoutOf(out("P ", "AA /opt/aa"))!!.pluginTarget)
+    }
+
+    @Test
+    fun thePluginsFolderOfTheSamePrefixAsTheProgramFolderIsTheOneUsed() {
+        val loc = RemoteScripts.parseLocated(
+            out("P ", "AA /opt/aa", "P /net/hu-omap/fs/sda0", "AA $aaDir", "PP /net/hu-omap/fs/sda0/opt/hmi/ID5/data/ro/Plugins")
+        )
+        // the first prefix with a program folder is /opt/aa; it has no Plugins folder, so the other prefix's one is used
+        assertEquals("/net/hu-omap/fs/sda0/opt/hmi/ID5/data/ro/Plugins", loc.pluginsParent)
+        val both = RemoteScripts.parseLocated(
+            out("P ", "AA /opt/aa", "PP /opt/hmi/ID5/data/ro/Plugins", "P /net/hu-omap/fs/sda0", "AA $aaDir", "PP /net/hu-omap/fs/sda0/opt/hmi/ID5/data/ro/Plugins")
+        )
+        assertEquals("/opt/hmi/ID5/data/ro/Plugins", both.pluginsParent)
+    }
+
+    @Test
+    fun theLocateScriptSeesThePluginsFolderWhenNbtAadIsGone() {
+        assumeTrue(File("/bin/sh").canExecute())
+        val root = File.createTempFile("nbt-aad-plugins", "").also { it.delete() }
+        try {
+            File(root, "opt/aa/NbtAad.old").mkdirs()
+            File(root, "opt/hmi/ID5/data/ro/Plugins").mkdirs()
+            RemoteScripts.pathFix = ""
+            val script = RemoteScripts.locate().replace("for p in \"\" /net/hu-omap/fs/sda0 /net/hu-omap; do", "for p in \"${root.path}\"; do")
+            val p = ProcessBuilder("/bin/sh", "-c", script).redirectError(File("/dev/null")).start()
+            val text = p.inputStream.readBytes().toString(Charsets.UTF_8)
+            p.waitFor()
+            val lay = HeadUnit.layoutOf(text)!!
+            assertNull(lay.plugin)
+            assertEquals(File(root, "opt/hmi/ID5/data/ro/Plugins/NbtAad").path, lay.pluginTarget)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun aFullPluginIsInstalledWhereNoPluginFolderIs() {
+        assumeTrue(File("/bin/sh").canExecute())
+        val root = File.createTempFile("nbt-aad-fresh", "").also { it.delete() }
+        try {
+            val aa = File(root, "opt/aa").also { it.mkdirs() }
+            // the folder an earlier uninstall parked: a new plugin folder takes its place
+            File(aa, "NbtAad.old").mkdirs()
+            File(aa, "NbtAad.old/libNbtAad.so").writeText("parked")
+            val plugins = File(root, "opt/hmi/ID5/data/ro/Plugins").also { it.mkdirs() }
+            val pl = File(plugins, "NbtAad")
+            File(aa, "NbtAad.new").mkdirs()
+            File(aa, "NbtAad.new/libNbtAad.so").writeText("new")
+            File(aa, "NbtAad.new/NbtAad.xml").writeText("xml")
+            RemoteScripts.pathFix = ""
+            val p = ProcessBuilder("/bin/sh", "-c", RemoteScripts.swapPlugin(aa.path, pl.path)).redirectError(File("/dev/null")).start()
+            val t = p.inputStream.readBytes().toString(Charsets.UTF_8)
+            p.waitFor()
+            assertTrue(RemoteScripts.parseDone(t).second)
+            assertEquals("new", File(pl, "libNbtAad.so").readText())
+            assertEquals("xml", File(pl, "NbtAad.xml").readText())
+            assertFalse(File(aa, "NbtAad.new").exists())
+            // nothing was there to move aside, so the parked folder is gone and does not come back as a plugin
+            assertFalse(File(aa, "NbtAad.old").exists())
+            assertEquals(setOf("NbtAad"), plugins.list()!!.toSet())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun foldersAreTheSameWhateverTheWayToTheFileSystem() {
         assertTrue(RemoteScripts.sameFolder("/opt/aa", "/net/hu-omap/fs/sda0/opt/aa"))
         assertTrue(RemoteScripts.sameFolder("/fs/sda0/opt/aa/", "/opt/aa"))

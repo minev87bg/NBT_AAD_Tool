@@ -51,7 +51,12 @@ object HeadUnit {
         val daemonHere: Boolean = true,
         /** [aa] and [env] are on hu-omap and this login does not see them (see [RemoteScripts.hopPart]): nothing is read or written there from here. */
         val viaHop: Boolean = false,
-    )
+        /** The Plugins folder iDrive loads plugins from, when it is there (also when the NbtAad folder in it is not: an uninstall removes that). */
+        val pluginsParent: String? = null,
+    ) {
+        /** Where the plugin goes: its folder, or the place for a new one when only the Plugins folder is there. */
+        val pluginTarget: String? get() = plugin ?: pluginsParent?.let { "${it.trimEnd('/')}/NbtAad" }
+    }
 
     /** Why this app does not install over an NBTApps install. */
     const val NBTAPPS_NOTE =
@@ -71,8 +76,8 @@ object HeadUnit {
     internal fun layoutOf(out: String): Layout? {
         val loc = RemoteScripts.parseLocated(out)
         return when {
-            loc.aa != null && (loc.aaDaemon || loc.nbtApp == null) -> Layout(loc.aa, loc.plugin, va = loc.va, daemonHere = loc.aaDaemon)
-            loc.nbtApp != null -> Layout(loc.nbtApp, loc.plugin, nbtApps = true, env = loc.nbtData ?: loc.nbtApp, viaHop = loc.viaHop)
+            loc.aa != null && (loc.aaDaemon || loc.nbtApp == null) -> Layout(loc.aa, loc.plugin, va = loc.va, daemonHere = loc.aaDaemon, pluginsParent = loc.pluginsParent)
+            loc.nbtApp != null -> Layout(loc.nbtApp, loc.plugin, nbtApps = true, env = loc.nbtData ?: loc.nbtApp, viaHop = loc.viaHop, pluginsParent = loc.pluginsParent)
             else -> null
         }
     }
@@ -539,12 +544,23 @@ object HeadUnit {
             val lay = pr.layout
             if (lay.nbtApps) throw IOException(NBTAPPS_NOTE)
             rep.say("NBT-AAD folder: ${lay.aa}", Level.INFO)
-            if (plugin.isNotEmpty()) {
-                val pl = lay.plugin ?: throw IOException(
-                    "The plugin folder (…/Plugins/NbtAad) was not found on the head unit, so the plugin files cannot " +
-                        "be replaced. Nothing was changed."
+            // The NbtAad folder is gone after an uninstall (or on a clean head unit): a full install makes it again in the
+            // Plugins folder, which stays. Part of a plugin cannot make a folder, and without a Plugins folder there is no place.
+            val pl: String? = if (plugin.isEmpty()) lay.plugin else {
+                val target = lay.pluginTarget ?: throw IOException(
+                    "The Plugins folder (…/ID5/data/ro/Plugins) was not found on the head unit, so the plugin cannot be " +
+                        "installed. Nothing was changed."
                 )
-                rep.say("Plugin folder: $pl", Level.INFO)
+                if (lay.plugin == null) {
+                    if (!pkg.fullPlugin) throw IOException(
+                        "The plugin folder (…/Plugins/NbtAad) is not on the head unit and these files are only part of the " +
+                            "plugin. Install a full release first. Nothing was changed."
+                    )
+                    rep.say("Plugin folder: $target (not there: it will be made)", Level.INFO)
+                } else {
+                    rep.say("Plugin folder: $target", Level.INFO)
+                }
+                target
             }
             stopDaemon(ssh, rep, pr.scan)
             clock.step()
@@ -552,7 +568,7 @@ object HeadUnit {
             // Everything is uploaded and checked first; nothing on the head unit changes until all of it is there.
             try {
                 val prep = ssh.exec(
-                    RemoteScripts.prepare(lay.aa, lay.plugin, daemon != null, plugin.isNotEmpty(), keepOld = !pkg.fullPlugin),
+                    RemoteScripts.prepare(lay.aa, pl, daemon != null, plugin.isNotEmpty(), keepOld = !pkg.fullPlugin),
                     timeoutMs = 90_000,
                 )
                 if (prep.exit != 0) throw stepFailure("Preparing the head unit", prep.exit, prep.err)
@@ -581,7 +597,7 @@ object HeadUnit {
                 if (daemon != null) RemoteScripts.Op.SWAP_DAEMON else null,
                 if (plugin.isNotEmpty()) RemoteScripts.Op.SWAP_PLUGIN else null,
             )
-            val r = ssh.exec(RemoteScripts.apply(lay.aa, lay.plugin, ops, remount = false), timeoutMs = 120_000)
+            val r = ssh.exec(RemoteScripts.apply(lay.aa, pl, ops, remount = false), timeoutMs = 120_000)
             val (daemonDone, pluginDone) = RemoteScripts.parseDone(r.text)
             if (daemonDone) rep.swapped("daemon")
             if (pluginDone) rep.swapped("plugin")
@@ -604,7 +620,7 @@ object HeadUnit {
 
             // what the head unit holds now, as the same command printed it
             val problems = ArrayList<String>()
-            val st = RemoteScripts.parseStatus(lay.aa, lay.plugin, r.text)
+            val st = RemoteScripts.parseStatus(lay.aa, pl, r.text)
             if (daemon != null) {
                 val f = st.files[Names.DAEMON]
                 when {

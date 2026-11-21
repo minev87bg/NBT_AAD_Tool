@@ -93,6 +93,8 @@ class ProcScan(val scanned: Boolean, val here: List<Int>, val onHuOmap: List<Int
  */
 object RemoteScripts {
     const val PLUGIN_SUBPATH = "opt/hmi/ID5/data/ro/Plugins/NbtAad"
+    /** The folder iDrive loads its plugins from. It stays when the NbtAad folder in it is gone (after an uninstall). */
+    const val PLUGINS_PARENT = "opt/hmi/ID5/data/ro/Plugins"
 
     /**
      * The id of Sq00ky's package for NBTApps (Tom Pryor's app store for the head unit). NBTApps keeps the daemon in
@@ -128,6 +130,7 @@ object RemoteScripts {
           if [ -d "¤p/opt/aa" ]; then echo "AA ¤p/opt/aa"; fi
           if [ -e "¤p/opt/aa/nbt-aad" ]; then echo "AD ¤p/opt/aa"; loc_ad=1; fi
           if [ -d "¤p/$PLUGIN_SUBPATH" ]; then echo "PL ¤p/$PLUGIN_SUBPATH"; fi
+          if [ -d "¤p/$PLUGINS_PARENT" ]; then echo "PP ¤p/$PLUGINS_PARENT"; fi
           if [ -d "¤p/var/opt/aa" ]; then echo "VA ¤p/var/opt/aa"; fi
           if [ -d "¤p/var/opt/nbtapp/apps/$NBTAPPS_ID" ]; then echo "NA ¤p/var/opt/nbtapp/apps/$NBTAPPS_ID"; loc_na=1; fi
           if [ -d "¤p/var/opt/nbtapp/data/$NBTAPPS_ID" ]; then echo "ND ¤p/var/opt/nbtapp/data/$NBTAPPS_ID"; fi
@@ -428,11 +431,13 @@ object RemoteScripts {
         val aaDaemon: Boolean = false,
         /** [nbtApp] and [nbtData] are paths on hu-omap that this login cannot see: hu-omap itself told of them (see [hopPart]). */
         val viaHop: Boolean = false,
+        /** The Plugins folder of the prefix that has [aa], when it is there: the NbtAad folder can be made in it even when it is gone. */
+        val pluginsParent: String? = null,
     )
 
     /** Everything [locate] printed, as [Located]; each of the four is the first one found, a plugin folder next to the program first. */
     fun parseLocated(out: String): Located {
-        class Row { var aa: String? = null; var ad: String? = null; var pl: String? = null; var na: String? = null; var nd: String? = null; var va: String? = null }
+        class Row { var aa: String? = null; var ad: String? = null; var pl: String? = null; var pp: String? = null; var na: String? = null; var nd: String? = null; var va: String? = null }
         val rows = ArrayList<Row>()
         for (raw in out.lines()) {
             val line = raw.trim()
@@ -440,6 +445,7 @@ object RemoteScripts {
                 line == "P" || line.startsWith("P ") -> rows += Row()
                 line.startsWith("AA ") -> rows.lastOrNull()?.aa = line.substring(3).trim()
                 line.startsWith("PL ") -> rows.lastOrNull()?.pl = line.substring(3).trim()
+                line.startsWith("PP ") -> rows.lastOrNull()?.pp = line.substring(3).trim()
                 line.startsWith("AD ") -> rows.lastOrNull()?.ad = line.substring(3).trim()
                 // the first one of a prefix wins: the package this app knows is printed before the others
                 line.startsWith("NA ") -> rows.lastOrNull()?.let { if (it.na == null) it.na = line.substring(3).trim() }
@@ -453,10 +459,12 @@ object RemoteScripts {
         val daemonHere = aa != null && rows.any { it.ad == aa }
         // what hu-omap reported itself: used only when this login saw nothing of NBTApps (the package this app knows first)
         val hop = parseHop(out)
+        // the Plugins folder next to the program folder (same prefix) first, any other one after it
+        val pp = rows.firstOrNull { it.aa == aa && it.pp != null }?.pp ?: rows.firstNotNullOfOrNull { it.pp }
         if (na == null && hop != null) {
-            return Located(aa, pl, hop.first, hop.second, rows.firstNotNullOfOrNull { it.va }, daemonHere, viaHop = true)
+            return Located(aa, pl, hop.first, hop.second, rows.firstNotNullOfOrNull { it.va }, daemonHere, viaHop = true, pluginsParent = pp)
         }
-        return Located(aa, pl, na?.na, na?.nd ?: rows.firstNotNullOfOrNull { it.nd }, rows.firstNotNullOfOrNull { it.va }, daemonHere)
+        return Located(aa, pl, na?.na, na?.nd ?: rows.firstNotNullOfOrNull { it.nd }, rows.firstNotNullOfOrNull { it.va }, daemonHere, pluginsParent = pp)
     }
 
     /** `HOP ok` was printed: hu-omap answered the question that [hopPart] sent it. */
