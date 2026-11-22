@@ -63,6 +63,8 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    // walks a user-picked folder tree (OpenDocumentTree) to find the owner's own PSdZData security/ files
+    implementation("androidx.documentfile:documentfile:1.0.1")
     // maintained JSch fork: still supports the old ssh-dss / ssh-rsa / hmac-sha1 the head unit needs
     implementation("com.github.mwiede:jsch:0.2.21")
 

@@ -194,23 +194,39 @@ private fun CodingKeysSection(vm: MainViewModel) {
     val l3Picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u ->
         u?.let { vm.importCodingKey(it, ncd = false) }
     }
+    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { u ->
+        u?.let { vm.recoverCodingKeysFromFolder(it) }
+    }
     Text("Coding keys", fontSize = 15.sp, fontWeight = FontWeight.Medium)
     Text(
-        "Writing a coding bit needs two small files recovered once from your own PSdZData, on a PC, with " +
-            "vandelayautollc/nbt-evo-toolkit's own nbtevo.keys tool (--kind ncd and --kind l3). They're kept on this " +
-            "phone encrypted, never sent anywhere.",
+        "Writing a coding bit needs two small keys recovered once from your own PSdZData — BMW's own dealer-level " +
+            "diagnostic data, not something this app ships or can fetch for you. Point RECOVER ON THIS PHONE at the " +
+            "psdzdata/security folder (or anything containing it, plus your PSdZ resource.jar) and both keys are " +
+            "recovered right here, no PC or Python needed. They're kept on this phone encrypted, never sent anywhere.",
         fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
     )
-    StatusRow("ncd_key.json (signs the coding)", if (vm.hasNcdKey) "Imported" else null, found = vm.hasNcdKey)
     Button(
-        onClick = { ncdPicker.launch(arrayOf("application/json")) },
-        modifier = Modifier.padding(top = 6.dp).fillMaxWidth(),
-    ) { Text("IMPORT ncd_key.json…") }
+        onClick = { folderPicker.launch(null) },
+        enabled = !vm.recoveringKeys,
+        modifier = Modifier.fillMaxWidth(),
+    ) { Text(if (vm.recoveringKeys) "RECOVERING…" else "RECOVER ON THIS PHONE…") }
+    if (vm.recoveringKeys) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
+    Spacer(Modifier.height(10.dp))
+    StatusRow("ncd_key.json (signs the coding)", if (vm.hasNcdKey) "Imported" else null, found = vm.hasNcdKey)
     Spacer(Modifier.height(8.dp))
     StatusRow("l3_key.json (unlocks writing)", if (vm.hasL3Key) "Imported" else null, found = vm.hasL3Key)
-    Button(
+    Text(
+        "Already have ncd_key.json / l3_key.json from a PC run instead? Import them directly:",
+        fontSize = 11.sp, color = muted, modifier = Modifier.padding(top = 10.dp, bottom = 4.dp),
+    )
+    OutlinedButton(
+        onClick = { ncdPicker.launch(arrayOf("application/json")) },
+        modifier = Modifier.fillMaxWidth(),
+    ) { Text("IMPORT ncd_key.json…") }
+    Spacer(Modifier.height(6.dp))
+    OutlinedButton(
         onClick = { l3Picker.launch(arrayOf("application/json")) },
-        modifier = Modifier.padding(top = 6.dp).fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth(),
     ) { Text("IMPORT l3_key.json…") }
     if (vm.hasNcdKey || vm.hasL3Key) {
         TextButton(onClick = { vm.forgetCodingKeys() }, modifier = Modifier.padding(top = 4.dp)) { Text("FORGET BOTH KEYS") }

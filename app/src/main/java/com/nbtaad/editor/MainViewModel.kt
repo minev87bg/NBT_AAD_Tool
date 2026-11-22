@@ -918,6 +918,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // Writing coding: the owner's own recovered keys, a mandatory backup, then a signed write
     // =====================================================================
 
+    /** The only bootloader this app targets (the NBT EVO head unit) - same constant L3.kt defaults to. */
+    private val CODING_BTLD = "00001FFD"
+
     private val codingKeyStore by lazy { com.nbtaad.editor.net.CodingKeyStore(ctx) }
 
     var hasNcdKey by mutableStateOf(codingKeyStore.hasNcdKey())
@@ -945,6 +948,58 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 AppLog.e("Coding", "Importing a coding key failed", e)
                 feedback = "Could not import that file: ${friendlyError(e)}"
                 feedbackError = true
+            }
+        }
+    }
+
+    var recoveringKeys by mutableStateOf(false)
+
+    /**
+     * Recovers both coding keys on the phone itself, from a folder the owner picked (their own
+     * PSdZData `security/` folder, or anything containing it) - no PC, no Python. Walks the
+     * folder for `sec_security.lic`/`sec_keyreference.xml`/`sec_ncdkeys.xml`/`sec_auth_l3.xml`
+     * and the BMW logo resources (`resource.jar`, or the two PNGs loose), then runs the exact
+     * same recovery `nbtevo.keys` does on a PC (see net/PsdzRecovery.kt).
+     */
+    fun recoverCodingKeysFromFolder(treeUri: android.net.Uri) {
+        if (recoveringKeys) return
+        recoveringKeys = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val found = com.nbtaad.editor.net.PsdzFolderScan.scan(ctx, treeUri)
+                var gotNcd = false
+                var gotL3 = false
+                found.ncdKeysXml?.let { ncdXml ->
+                    val key = com.nbtaad.editor.net.PsdzKeyRecovery.recover(
+                        found.securityLic, found.keyreferenceXml, ncdXml,
+                        CODING_BTLD, "ncd", found.logoPng, found.miniLogoPng,
+                    )
+                    codingKeyStore.importNcdKey(key.toJson())
+                    gotNcd = true
+                }
+                found.authL3Xml?.let { l3Xml ->
+                    val key = com.nbtaad.editor.net.PsdzKeyRecovery.recover(
+                        found.securityLic, found.keyreferenceXml, l3Xml,
+                        CODING_BTLD, "l3", found.logoPng, found.miniLogoPng,
+                    )
+                    codingKeyStore.importL3Key(key.toJson())
+                    gotL3 = true
+                }
+                hasNcdKey = codingKeyStore.hasNcdKey()
+                hasL3Key = codingKeyStore.hasL3Key()
+                feedback = when {
+                    gotNcd && gotL3 -> "Recovered both keys from that folder."
+                    gotNcd -> "Recovered the NCD key. No sec_auth_l3.xml was found in that folder for the L3 key."
+                    gotL3 -> "Recovered the L3 key. No sec_ncdkeys.xml was found in that folder for the NCD key."
+                    else -> "Nothing recovered."
+                }
+                feedbackError = !(gotNcd || gotL3)
+            } catch (e: Exception) {
+                AppLog.e("Coding", "On-device key recovery failed", e)
+                feedback = "Couldn't recover a key from that folder: ${friendlyError(e)}"
+                feedbackError = true
+            } finally {
+                recoveringKeys = false
             }
         }
     }
