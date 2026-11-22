@@ -199,19 +199,54 @@ private fun CodingKeysSection(vm: MainViewModel) {
     }
     Text("Coding keys", fontSize = 15.sp, fontWeight = FontWeight.Medium)
     Text(
-        "Writing a coding bit needs two small keys recovered once from your own PSdZData — BMW's own dealer-level " +
-            "diagnostic data, not something this app ships or can fetch for you. Point RECOVER ON THIS PHONE at a " +
-            "folder containing the psdzdata/security files and the BMW logo resources — loose, zipped, or inside " +
-            "resource.jar, any of that works — and both keys are recovered right here, no PC or Python needed. " +
-            "They're kept on this phone encrypted, never sent anywhere.",
+        "Writing a coding bit needs two small keys recovered once from your own PSdZData. Tap RECOVER ON THIS " +
+            "PHONE for what that means and where it has to come from.",
         fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
     )
     Button(
-        onClick = { folderPicker.launch(null) },
+        onClick = { vm.showRecoveryInfo = true },
         enabled = !vm.recoveringKeys,
         modifier = Modifier.fillMaxWidth(),
     ) { Text(if (vm.recoveringKeys) "RECOVERING…" else "RECOVER ON THIS PHONE…") }
     if (vm.recoveringKeys) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
+    if (vm.showRecoveryInfo) {
+        AlertDialog(
+            onDismissRequest = { vm.showRecoveryInfo = false },
+            title = { Text("These have to be your own files") },
+            text = {
+                Column {
+                    Text(
+                        "The two coding keys come out of BMW's own dealer-level diagnostic software (ISTA/PSdZ) — " +
+                            "not something this app ships, stores, or can fetch for you, and for legal reasons never " +
+                            "will. You have to supply your own copy of it.",
+                    )
+                    Text(
+                        "Specifically: the small security/ files (sec_security.lic, sec_keyreference.xml, " +
+                            "sec_ncdkeys.xml, sec_auth_l3.xml) plus the two BMW logo images that live in PSdZ's " +
+                            "resource.jar.",
+                        modifier = Modifier.padding(top = 10.dp),
+                    )
+                    Text(
+                        "How they're packaged doesn't matter — loose in a folder, zipped, nested inside another " +
+                            "zip, still inside resource.jar — point this at any folder containing them, in any of " +
+                            "those shapes, and they'll be found.",
+                        modifier = Modifier.padding(top = 10.dp),
+                    )
+                    Text(
+                        "Nothing you pick ever leaves this phone.",
+                        fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 10.dp),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.showRecoveryInfo = false
+                    folderPicker.launch(null)
+                }) { Text("CHOOSE FOLDER") }
+            },
+            dismissButton = { TextButton(onClick = { vm.showRecoveryInfo = false }) { Text("Cancel") } },
+        )
+    }
     Spacer(Modifier.height(10.dp))
     StatusRow("ncd_key.json (signs the coding)", if (vm.hasNcdKey) "Imported" else null, found = vm.hasNcdKey)
     Spacer(Modifier.height(8.dp))

@@ -954,6 +954,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     var recoveringKeys by mutableStateOf(false)
 
+    /** Set when RECOVER ON THIS PHONE is tapped, to show the "these have to be yours" explainer first. */
+    var showRecoveryInfo by mutableStateOf(false)
+
     /**
      * Recovers both coding keys on the phone itself, from a folder the owner picked (their own
      * PSdZData `security/` folder, or anything containing it) - no PC, no Python. Walks the
