@@ -2,6 +2,7 @@ package com.nbtaad.editor.addon
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayOutputStream
@@ -49,8 +50,16 @@ class AddOnsVerdictTest {
         assertTrue(r.problems.toString(), r.problems.isEmpty())
         assertTrue(r.installable)
         assertEquals(Recognition.Level.READY, r.level)
-        assertTrue(r.verdict, r.verdict.startsWith("Compatible"))
-        assertTrue(r.verdict, r.verdict.contains("Ready to try"))
+        assertTrue(r.verdict, r.verdict.startsWith("Installable now"))
+        assertTrue(r.verdict, r.verdict.contains("7 of 7"))
+        assertEquals("Installable now", r.headline)
+        assertTrue(r.answer, r.answer.startsWith("Yes"))
+        val b = r.build!!
+        assertEquals(100, b.percent)
+        assertEquals(7, b.have.size)
+        assertTrue(b.missing.isEmpty())
+        assertEquals("v1.9.82-test", b.version)
+        assertEquals(5, b.pluginHave.size)
         assertTrue(r.facts.toString(), r.facts.any { it.contains("32-bit ARM program") })
         assertTrue(r.facts.toString(), r.facts.any { it.contains("libNbtAad.so is a 32-bit ARM library") })
     }
@@ -61,6 +70,18 @@ class AddOnsVerdictTest {
         assertFalse(r.installable)
         assertEquals(Recognition.Level.NO, r.level)
         assertTrue(r.verdict, r.verdict.startsWith("Cannot be installed"))
+        assertEquals("Cannot be installed", r.headline)
+        assertTrue(r.answer, r.answer.startsWith("No"))
+    }
+
+    @Test
+    fun aPartialBuildSaysWhatIsMissing() {
+        val r = AddOns.recognize(ZipSurvey.survey("b.zip", zipOf("nbt-aad" to elf(extra = "NBT-AAD-VERSION=v1.9.82-test"), "pf_aa" to elf())))
+        val b = r.build!!
+        assertEquals(29, b.percent)
+        assertEquals(listOf("nbt-aad", "pf_aa"), b.have)
+        assertEquals(5, b.pluginMissing.size)
+        assertTrue(b.pluginHave.isEmpty())
     }
 
     @Test
@@ -69,6 +90,9 @@ class AddOnsVerdictTest {
         assertFalse(r.installable)
         assertEquals(Recognition.Level.NOT_HERE, r.level)
         assertTrue(r.verdict, r.verdict.startsWith("Not an NBT-AAD build"))
+        assertEquals("Not an NBT-AAD build", r.headline)
+        assertTrue(r.answer, r.answer.startsWith("No"))
+        assertNull(r.build)
     }
 
     @Test

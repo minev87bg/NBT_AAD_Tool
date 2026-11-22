@@ -36,6 +36,10 @@ class ExperimentalController(
     private val onFile: (SourceFile, Topic, FileLink) -> Unit,
     /** A shared file is to be kept on the phone for later; true when it was kept (it is an installable build). */
     private val onKeep: (SourceFile, Topic, FileLink) -> Boolean = { _, _, _ -> false },
+    /** Is a file with exactly these bytes already kept on the phone? */
+    private val isKept: (SourceFile) -> Boolean = { false },
+    /** The copy of this shared file that is kept on the phone, or null: it is then not downloaded again. */
+    private val keptCopy: (FileLink, Topic) -> SourceFile? = { _, _ -> null },
 ) {
     enum class Tab { ISSUES, PRS }
 
@@ -108,6 +112,9 @@ class ExperimentalController(
     class Inside(val link: FileLink, val topic: Topic, val file: SourceFile, val survey: Survey, val recognition: Recognition)
 
     var inside by mutableStateOf<Inside?>(null); private set
+
+    /** True when the file in the window is already kept on the phone (SAVE FOR LATER then reads ALREADY SAVED). */
+    var insideSaved by mutableStateOf(false); private set
     var insideBusy by mutableStateOf(false); private set
     var insideMessage by mutableStateOf(""); private set
     var insideError by mutableStateOf(false); private set
@@ -458,10 +465,17 @@ class ExperimentalController(
         insideBusy = true
         insideFor = link.url
         insideError = false
-        insideMessage = "Downloading ${link.name}…"
+        insideMessage = "Looking for ${link.name} on this phone…"
         scope.launch(Dispatchers.IO) {
             try {
-                val f = IssuesApi.download(ctx, link) { insideMessage = "Downloading ${link.name}… ${it / 1024} KB" }
+                val have = try { keptCopy(link, t) } catch (_: Exception) { null }
+                val f = if (have != null) {
+                    AppLog.i("AddOn", "Looking inside the copy of ${link.name} that is kept on the phone (no download)")
+                    have
+                } else {
+                    insideMessage = "Downloading ${link.name}…"
+                    IssuesApi.download(ctx, link) { insideMessage = "Downloading ${link.name}… ${it / 1024} KB" }
+                }
                 insideMessage = "Looking inside…"
                 val survey = ZipSurvey.survey(f.name, f.bytes)
                 val rec = AddOns.recognize(survey)
@@ -474,6 +488,7 @@ class ExperimentalController(
                 insideAi = null
                 insideAiMessage = ""
                 insideKept = ""
+                insideSaved = rec.installable && isKept(f)
                 scans = (scans + (link.url to ScanNote(rec.verdict, rec.level, rec.installable))).entries
                     .toList().takeLast(MAX_SCANS).associate { it.key to it.value }
                 inside = Inside(link, t, f, survey, rec)
@@ -501,15 +516,15 @@ class ExperimentalController(
     /** SAVE FOR LATER: keeps the file on the phone; it waits on the Install page for a connected head unit. */
     fun keepInside() {
         val ins = inside ?: return
-        if (!ins.recognition.installable) return
+        if (!ins.recognition.installable || insideSaved) return
         scope.launch(Dispatchers.IO) {
             val ok = try { onKeep(ins.file, ins.topic, ins.link) } catch (e: Exception) {
                 AppLog.e("Experimental", "Keeping ${ins.link.name} failed", e)
                 false
             }
             if (inside === ins) {
-                insideKept = if (ok) "Saved on this phone. It waits on the Install page, under \"Saved on this phone\"."
-                else "Could not save it on the phone."
+                if (ok) insideSaved = true
+                insideKept = if (ok) "" else "Could not save it on the phone."
             }
         }
     }

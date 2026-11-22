@@ -37,7 +37,7 @@ class ShelfStore(ctx: Context) {
 
     /** Keeps [file]. Returns the entry, or null when it is not an installable build (nothing is kept then). */
     @Synchronized
-    fun save(file: SourceFile, origin: String, pageUrl: String?): ShelfItem? {
+    fun save(file: SourceFile, origin: String, pageUrl: String?, sourceUrl: String? = null): ShelfItem? {
         val pkg = try { BuildPackage.of(listOf(file)) } catch (_: Exception) { return null }
         if (!pkg.installable) return null
         val id = UpdateLogic.sha256Hex(file.bytes).take(16)
@@ -51,7 +51,7 @@ class ShelfStore(ctx: Context) {
         }
         val item = ShelfItem(
             id, file.name, System.currentTimeMillis(), file.bytes.size.toLong(), pkg.version, ShelfIndex.kindText(pkg.kind),
-            origin, pageUrl,
+            origin, pageUrl, sourceUrl = sourceUrl,
         )
         val (kept, dropped) = ShelfIndex.place(list(), item)
         for (d in dropped) bytesOf(d.id).delete()
@@ -60,6 +60,18 @@ class ShelfStore(ctx: Context) {
             if (dropped.isNotEmpty()) ", ${dropped.size} older one(s) made room" else "")
         return item
     }
+
+    /** Is a file with exactly these bytes on the shelf? */
+    @Synchronized
+    fun has(bytes: ByteArray): Boolean {
+        val id = UpdateLogic.sha256Hex(bytes).take(16)
+        return list().any { it.id == id }
+    }
+
+    /** The saved copy of the file at [url] (called [fileName] on the page [page]), or null when there is none. */
+    @Synchronized
+    fun copyOf(url: String, fileName: String, page: String?): ShelfItem? =
+        list().firstOrNull { it.isCopyOf(url, fileName, page) }
 
     /** The bytes of an entry as a file to install, or null when they are gone or no longer match their hash. */
     @Synchronized

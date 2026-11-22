@@ -28,9 +28,18 @@ class ShelfItem(
     val pageUrl: String?,
     /** When it was last installed from the shelf, else null. */
     val installedAt: Long? = null,
+    /** The address the file was downloaded from, so the same file is not downloaded again; null for older entries. */
+    val sourceUrl: String? = null,
 ) {
     fun copy(savedAt: Long = this.savedAt, installedAt: Long? = this.installedAt) =
-        ShelfItem(id, name, savedAt, size, version, summary, origin, pageUrl, installedAt)
+        ShelfItem(id, name, savedAt, size, version, summary, origin, pageUrl, installedAt, sourceUrl)
+
+    /**
+     * Is this the copy of the file at [url]? By its address when it has one; an older entry (saved before addresses
+     * were kept) is matched by the file's name on the same page.
+     */
+    fun isCopyOf(url: String, fileName: String, page: String?): Boolean =
+        if (sourceUrl != null) sourceUrl == url else (name == fileName && page != null && pageUrl == page)
 }
 
 object ShelfIndex {
@@ -53,7 +62,8 @@ object ShelfIndex {
                 "\"size\":${i.size},\"version\":${i.version?.let { AiLogic.jsonString(it) } ?: "null"}," +
                 "\"summary\":${AiLogic.jsonString(i.summary)},\"origin\":${AiLogic.jsonString(i.origin)}," +
                 "\"pageUrl\":${i.pageUrl?.let { AiLogic.jsonString(it) } ?: "null"}," +
-                "\"installedAt\":${i.installedAt ?: "null"}}"
+                "\"installedAt\":${i.installedAt ?: "null"}," +
+                "\"sourceUrl\":${i.sourceUrl?.let { AiLogic.jsonString(it) } ?: "null"}}"
         } + "]}"
 
     private val ID = Regex("""[0-9a-f]{8,64}""")
@@ -75,6 +85,7 @@ object ShelfIndex {
                 origin = o.str("origin"),
                 pageUrl = o.str("pageUrl").ifBlank { null },
                 installedAt = (o["installedAt"] as? Number)?.toLong(),
+                sourceUrl = o.str("sourceUrl").ifBlank { null },
             )
         }
     }

@@ -25,8 +25,14 @@ class Recognition(
     val addOn: String? = null,
     /** True when the app has a recipe that applies this add-on. */
     val appliesInApp: Boolean = false,
-    /** One sentence that says where the file stands, for the top of the window and the file's row. */
+    /** One sentence that says where the file stands, for the file's row. */
     val verdict: String = "",
+    /** The big words at the top of the window: "Installable now", "Cannot be installed" … */
+    val headline: String = "",
+    /** The direct answer to "can the app install this now?", starting with Yes or No. */
+    val answer: String = "",
+    /** What the zip holds of Sq00ky's build, when it holds any of it. */
+    val build: BuildSummary? = null,
 ) {
     /** How the verdict is coloured: ready to try, worth a look but not installable, or problems found. */
     val level: Level get() = when {
@@ -36,6 +42,20 @@ class Recognition(
     }
 
     enum class Level { READY, NOT_HERE, NO }
+}
+
+/** Which of the build's 7 files a zip holds, for the big facts of the window. */
+class BuildSummary(
+    val percent: Int,
+    val have: List<String>,
+    val missing: List<String>,
+    val version: String?,
+    val kind: Kind,
+) {
+    val total: Int get() = Names.ALL.size
+    val daemonFiles: List<String> get() = listOf(Names.DAEMON, Names.FIREWALL)
+    val pluginHave: List<String> get() = have.filter { Names.isPlugin(it) }
+    val pluginMissing: List<String> get() = missing.filter { Names.isPlugin(it) }
 }
 
 /** An add-on the app knows by the files it comes with. */
@@ -124,10 +144,14 @@ object AddOns {
             facts += leftOutFacts(s)
             val ok = b.installable && s.refused == null
             if (ok) facts += checkedFacts(b)
+            val why = problems.firstOrNull() ?: "the installer does not take these files."
             return Recognition(
                 Match.SQ00KY_BUILD, "Files of Sq00ky's NBT-AAD", facts, problems,
                 installable = ok,
-                verdict = if (ok) readyVerdict(b) else "Cannot be installed: ${problems.firstOrNull() ?: "the installer does not take these files."}",
+                verdict = if (ok) readyVerdict(b) else "Cannot be installed: $why",
+                headline = if (ok) "Installable now" else "Cannot be installed",
+                answer = if (ok) "Yes. The app can install this now." else "No. $why",
+                build = BuildSummary(b.percent, b.found, b.missing, b.version, b.kind),
             )
         }
 
@@ -142,6 +166,8 @@ object AddOns {
                     Match.KNOWN_ADDON, "${k.title} (add-on)", facts, problems,
                     installable = false, addOn = k.id, appliesInApp = k.recipe,
                     verdict = if (k.recipe) "Recognized as ${k.title}: the app can apply it." else "Recognized as ${k.title}, but the app cannot install add-ons yet.",
+                    headline = if (k.recipe) "Add-on the app can apply" else "Not installable yet",
+                    answer = if (k.recipe) "Yes. The app knows this add-on (${k.title})." else "No. This is ${k.title}, an add-on the app cannot install yet.",
                 )
             }
         }
@@ -155,15 +181,17 @@ object AddOns {
         return Recognition(
             Match.UNKNOWN, "Not a build the app knows", facts, problems, installable = false,
             verdict = if (s.refused != null) "The app cannot read this file." else "Not an NBT-AAD build: the app cannot install it.",
+            headline = if (s.refused != null) "Cannot be read" else "Not an NBT-AAD build",
+            answer = if (s.refused != null) "No. ${s.refused}" else "No. None of Sq00ky's build files are in it, and it is not an add-on the app knows.",
         )
     }
 
     /** The sentence for a build the installer takes. It promises nothing about the result: the files are not official. */
     private fun readyVerdict(b: BuildPackage): String = when (b.kind) {
-        Kind.BUILD -> "Compatible: all ${b.found.size} of ${Names.ALL.size} files of an NBT-AAD build are here and look right. Ready to try."
-        Kind.DAEMON_ONLY -> "Compatible: the daemon (nbt-aad) alone, as a test build. Ready to try."
-        Kind.PLUGIN_ONLY -> "Compatible: ${b.found.size} plugin file${if (b.found.size == 1) "" else "s"} without the daemon. Ready to try."
-        else -> "Compatible: ${b.found.size} of ${Names.ALL.size} files of a build. Ready to try; the other files stay as they are."
+        Kind.BUILD -> "Installable now: all ${b.found.size} of ${Names.ALL.size} files of a build (${b.percent}%)."
+        Kind.DAEMON_ONLY -> "Installable now: the daemon (nbt-aad) alone, a test build."
+        Kind.PLUGIN_ONLY -> "Installable now: ${b.found.size} plugin file${if (b.found.size == 1) "" else "s"}, no daemon."
+        else -> "Installable now: ${b.found.size} of ${Names.ALL.size} files of a build (${b.percent}%); the others stay as they are."
     }
 
     /** What the installer looked at, so "compatible" is not just a word. */

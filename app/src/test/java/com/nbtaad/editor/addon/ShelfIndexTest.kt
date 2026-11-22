@@ -87,4 +87,25 @@ class ShelfIndexTest {
         assertEquals("plugin only", ShelfIndex.kindText(Kind.PLUGIN_ONLY))
         assertEquals("daemon only", ShelfIndex.kindText(Kind.DAEMON_ONLY))
     }
+
+    @Test
+    fun theAddressOfAFileSurvivesAndMatchesTheSameFileAgain() {
+        val a = ShelfItem("a1".padEnd(16, '0'), "f.zip", 1, 10, null, "full build", "issue #5", "https://x.test/5", null, "https://x.test/assets/f")
+        val back = ShelfIndex.parse(ShelfIndex.toJson(listOf(a))).single()
+        assertEquals("https://x.test/assets/f", back.sourceUrl)
+        assertTrue(back.isCopyOf("https://x.test/assets/f", "f.zip", "https://x.test/5"))
+        assertFalse(back.isCopyOf("https://x.test/assets/other", "f.zip", "https://x.test/5"))
+        // a copy keeps its address when only the time changes
+        assertEquals("https://x.test/assets/f", back.copy(savedAt = 99).sourceUrl)
+    }
+
+    @Test
+    fun anOlderEntryWithoutAnAddressIsMatchedByNameAndPage() {
+        val old = ShelfItem("b1".padEnd(16, '0'), "f.zip", 1, 10, null, "full build", "issue #5", "https://x.test/5")
+        assertNull(ShelfIndex.parse(ShelfIndex.toJson(listOf(old))).single().sourceUrl)
+        assertTrue(old.isCopyOf("https://x.test/assets/any", "f.zip", "https://x.test/5"))
+        assertFalse(old.isCopyOf("https://x.test/assets/any", "g.zip", "https://x.test/5"))
+        assertFalse(old.isCopyOf("https://x.test/assets/any", "f.zip", "https://x.test/6"))
+        assertFalse(old.isCopyOf("https://x.test/assets/any", "f.zip", null))
+    }
 }

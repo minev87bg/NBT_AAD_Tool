@@ -274,13 +274,24 @@ class InstallController(
      * Keeps a file that someone shared on the phone, when it is an installable build, so that it is still there after the
      * app was closed and when no head unit is connected yet. Returns its entry, or null when it was not kept.
      */
-    fun keepForLater(file: SourceFile, origin: String, pageUrl: String?): ShelfItem? {
-        val item = try { shelfStore.save(file, origin, pageUrl) } catch (e: Exception) {
+    fun keepForLater(file: SourceFile, origin: String, pageUrl: String?, sourceUrl: String? = null): ShelfItem? {
+        val item = try { shelfStore.save(file, origin, pageUrl, sourceUrl) } catch (e: Exception) {
             AppLog.e("Shelf", "Could not keep ${file.name}", e)
             null
         }
         shelf = shelfStore.list()
         return item
+    }
+
+    /** Is a file with exactly these bytes already kept on the phone? */
+    fun isKept(file: SourceFile): Boolean = try { shelfStore.has(file.bytes) } catch (_: Exception) { false }
+
+    /** The kept copy of the file at [url], read from the phone, or null when there is none (or it no longer matches). */
+    fun keptCopy(url: String, fileName: String, page: String?): SourceFile? = try {
+        shelfStore.copyOf(url, fileName, page)?.let { shelfStore.load(it) }
+    } catch (e: Exception) {
+        AppLog.w("Shelf", "Could not read the kept copy of $fileName: ${e.message}")
+        null
     }
 
     /** Takes a kept file to the choice above (the same steps as a file just downloaded). */
