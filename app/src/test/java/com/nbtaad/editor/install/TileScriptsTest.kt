@@ -262,5 +262,92 @@ class TileScriptsTest {
         val local = TileScripts.start("/dev/shmem/${TileScripts.STAGE_DIR}", remount = false)
         assertFalse(local.contains("on -f"))
         assertTrue(local.contains("/bin/sh /dev/shmem/${TileScripts.STAGE_DIR}/job.sh"))
+        // the job is told where its folder is, which is where the login found room
+        val onDisk = TileScripts.start("/net/hu-omap/fs/ram5/${TileScripts.STAGE_DIR}", remount = false, there = "/fs/ram5/${TileScripts.STAGE_DIR}")
+        assertTrue(onDisk.contains("on -f /net/hu-omap/ /bin/sh /fs/ram5/${TileScripts.STAGE_DIR}/job.sh /fs/ram5/${TileScripts.STAGE_DIR}"))
+    }
+
+    // ---- the login's search for room in hu-omap's RAM ----
+
+    private class Places(val hop: File, val own: File)
+
+    private fun places(shmem: Boolean = true, ram5: Boolean = true, hopExists: Boolean = true): Places {
+        val hop = File(root, "net/hu-omap")
+        if (hopExists) hop.mkdirs()
+        if (hopExists && shmem) File(hop, "dev/shmem").mkdirs()
+        if (hopExists && ram5) File(hop, "fs/ram5").mkdirs()
+        val own = File(root, "own-shmem").also { it.mkdirs() }
+        return Places(hop, own)
+    }
+
+    private fun prepareOn(p: Places): String {
+        val proc = ProcessBuilder("/bin/sh", "-c", TileScripts.prepare(p.hop.path, p.own.path)).redirectErrorStream(true).start()
+        val out = proc.inputStream.bufferedReader().readText()
+        proc.waitFor()
+        return out
+    }
+
+    private val stage = TileScripts.STAGE_DIR
+
+    @Test
+    fun theStagingFolderGoesIntoSharedMemoryWhenThatWorks() {
+        val p = places()
+        val out = prepareOn(p)
+        assertTrue(out, out.contains("RAM ${p.hop.path}/dev/shmem/$stage /dev/shmem/$stage"))
+        assertTrue(File(p.hop, "dev/shmem/$stage").isDirectory)
+        assertFalse(out.contains("TRY"))
+    }
+
+    @Test
+    fun whenSharedMemoryRefusesTheFolderTheRamDiskIsUsedAndTheLogSaysWhy() {
+        val p = places()
+        // a file of that name where the folder should be made: mkdir fails the way a refusing file system would
+        File(p.hop, "dev/shmem/$stage").writeText("in the way")
+        val out = prepareOn(p)
+        assertTrue(out, out.contains("RAM ${p.hop.path}/fs/ram5/$stage /fs/ram5/$stage"))
+        assertTrue(out, out.contains("TRY ${p.hop.path}/dev/shmem: no folder could be made"))
+        assertTrue(File(p.hop, "fs/ram5/$stage").isDirectory)
+    }
+
+    @Test
+    fun anOldFolderIsEmptiedAndAMissingPlaceIsToldAsATry() {
+        val p = places(shmem = false)
+        File(p.hop, "fs/ram5/$stage").mkdirs()
+        File(p.hop, "fs/ram5/$stage/old-file").writeText("left over")
+        val out = prepareOn(p)
+        assertTrue(out, out.contains("TRY ${p.hop.path}/dev/shmem: not a folder"))
+        assertTrue(out, out.contains("RAM ${p.hop.path}/fs/ram5/$stage /fs/ram5/$stage"))
+        assertFalse(File(p.hop, "fs/ram5/$stage/old-file").exists())
+    }
+
+    @Test
+    fun withoutAnyPlaceTheAnswerIsNoRamWithWhatWasTried() {
+        val p = places(shmem = false, ram5 = false)
+        val out = prepareOn(p)
+        assertTrue(out, out.lines().contains("NORAM"))
+        assertTrue(out, out.contains("TRY ${p.hop.path}/dev/shmem"))
+        assertTrue(out, out.contains("TRY ${p.hop.path}/fs/ram5"))
+        assertFalse(out.contains("RAM ${p.own.path}"))
+    }
+
+    @Test
+    fun onTheProcessorThatIsHuOmapItselfItsOwnSharedMemoryIsUsed() {
+        val p = places(hopExists = false)
+        val out = prepareOn(p)
+        assertTrue(out, out.contains("RAM ${p.own.path}/$stage ${p.own.path}/$stage"))
+        assertTrue(File(p.own, stage).isDirectory)
+    }
+
+    @Test
+    fun theJobUsesTheFolderItIsToldAndOtherwiseItsOwn() {
+        val job = TileScripts.job(TileScripts.Action.STATUS, TileScripts.Mode.FOLLOW, program.size, launcher.size, hook.size, root = root.path)
+        val f = File(root, "stage/job.sh")
+        f.writeText(job)
+        val p = ProcessBuilder("/bin/sh", f.path, File(root, "stage").path).redirectInput(ProcessBuilder.Redirect.from(File("/dev/null")))
+            .redirectOutput(ProcessBuilder.Redirect.to(File("/dev/null"))).redirectError(ProcessBuilder.Redirect.to(File("/dev/null"))).start()
+        p.waitFor()
+        val r = TileScripts.parse(File(root, "stage/out").takeIf { it.exists() }?.readText() ?: "NOREPORT")
+        assertTrue(r.finished)
+        assertTrue(job.contains("S=\${1:-${TileScripts.stageThere()}}"))
     }
 }

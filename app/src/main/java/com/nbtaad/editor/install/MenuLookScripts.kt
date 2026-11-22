@@ -40,7 +40,7 @@ object MenuLookScripts {
         val imageLines = images.joinToString("\n") { "check_img ${i(it.stageName)} ${i(it.rel)}" }
         val head = """
             R=$root
-            S=$stage
+            S=¤{1:-$stage}
             exec > ¤S/out 2>&1
             RO=¤R/opt/hmi/ID5/data/ro
             B=¤R/opt/aa/menu-look-backup

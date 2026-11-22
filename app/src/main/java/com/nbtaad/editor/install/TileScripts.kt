@@ -39,29 +39,63 @@ object TileScripts {
 
     // ---- on the SSH login ----
 
-    /** Finds hu-omap's RAM as this login names it, makes the staging folder in it and empties it. Prints `RAM <folder>` or `NORAM`. */
-    fun prepare(): String = sh(
-        """
-        RAM=/net/hu-omap/dev/shmem
-        if [ ! -d ¤RAM ]; then RAM=/dev/shmem; fi
-        mkdir ¤RAM/$STAGE_DIR 2>/dev/null
-        rm -f ¤RAM/$STAGE_DIR/*
-        if [ -d ¤RAM/$STAGE_DIR ]; then echo "RAM ¤RAM/$STAGE_DIR"; else echo "NORAM"; fi
-        exit 0
-        """
-    )
+    /**
+     * Finds a place for the staging folder in hu-omap's RAM and makes it. A place counts only when the folder could be made
+     * in it and a file written and read back there; each place that does not is told as a `TRY` line, so the log says why.
+     * Prints `RAM <the folder as this login names it> <the folder as hu-omap's shell names it>`, or `NORAM`.
+     *
+     * The places, in order: hu-omap's shared memory (/dev/shmem, where the author's own scripts keep their files), then its
+     * RAM disk (/tmp is /fs/ram5 there, a real file system in RAM), then this login's own shared memory when this login is
+     * hu-omap itself (no /net/hu-omap). [hop] and [own] are the first part of the first two and the third; only tests change them.
+     */
+    fun prepare(hop: String = "/net/hu-omap", own: String = "/dev/shmem"): String {
+        require((hop + own).none { it in "'\"\\\n ¤" })
+        return sh(
+            """
+            mk() {
+              P="¤1/$STAGE_DIR"
+              E=¤(mkdir "¤P" 2>&1)
+              if [ -d "¤P" ]; then
+                rm -f "¤P"/* 2>/dev/null
+                W=¤( (echo probe > "¤P/probe") 2>&1 )
+                if [ -f "¤P/probe" ]; then rm -f "¤P/probe"; return 0; fi
+                echo "TRY ¤1: the folder is there but nothing could be written in it: ¤W"
+              else
+                echo "TRY ¤1: no folder could be made: ¤E"
+              fi
+              return 1
+            }
+            if [ -d $hop/dev/shmem ]; then
+              if mk $hop/dev/shmem; then echo "RAM $hop/dev/shmem/$STAGE_DIR /dev/shmem/$STAGE_DIR"; exit 0; fi
+            else
+              echo "TRY $hop/dev/shmem: not a folder as this login sees it"
+            fi
+            if [ -d $hop/fs/ram5 ]; then
+              if mk $hop/fs/ram5; then echo "RAM $hop/fs/ram5/$STAGE_DIR /fs/ram5/$STAGE_DIR"; exit 0; fi
+            else
+              echo "TRY $hop/fs/ram5: not a folder as this login sees it"
+            fi
+            if [ ! -d $hop ]; then
+              if mk $own; then echo "RAM $own/$STAGE_DIR $own/$STAGE_DIR"; exit 0; fi
+            fi
+            echo "NORAM"
+            ls -ld $hop $hop/dev $hop/dev/shmem $hop/fs $hop/fs/ram5 $own 2>&1
+            exit 0
+            """
+        )
+    }
 
-    /** The folder the job sees as its own: hu-omap's RAM is /dev/shmem there. */
+    /** The folder the job sees as its own when nothing else is said: hu-omap's shared memory is /dev/shmem there. */
     fun stageThere(): String = "/dev/shmem/$STAGE_DIR"
 
     /**
-     * Starts the job in hu-omap's shell and prints its report. [ram] is what [prepare] printed. [remount] first makes
-     * hu-omap's flash writable, as the author's guide does before `on -f /net/hu-omap/ /bin/sh`; it is needed to install
-     * or remove, not to look or test.
+     * Starts the job in hu-omap's shell and prints its report. [ram] is the folder [prepare] printed first and [there]
+     * the one it printed second (the job is told it as its first argument). [remount] first makes hu-omap's flash writable,
+     * as the author's guide does before `on -f /net/hu-omap/ /bin/sh`; it is needed to install or remove, not to look or test.
      */
-    fun start(ram: String, remount: Boolean): String {
-        val job = "${stageThere()}/job.sh"
-        val run = if (ram.startsWith("/net/hu-omap/")) "on -f /net/hu-omap/ /bin/sh $job" else "/bin/sh $job"
+    fun start(ram: String, remount: Boolean, there: String = stageThere()): String {
+        val job = "$there/job.sh"
+        val run = if (ram.startsWith("/net/hu-omap/")) "on -f /net/hu-omap/ /bin/sh $job $there" else "/bin/sh $job $there"
         return sh(
             (if (remount) RemoteScripts.REMOUNT_PART + "\n" else "") +
                 """
@@ -93,7 +127,7 @@ object TileScripts {
         require(root.none { it in "'\"\\\n ¤" } && stage.none { it in "'\"\\\n ¤" })
         val head = """
             R=$root
-            S=$stage
+            S=¤{1:-$stage}
             exec > ¤S/out 2>&1
             W=¤R/opt/conn/bin/start_webserver.sh
             D=¤R/opt/aa-tile

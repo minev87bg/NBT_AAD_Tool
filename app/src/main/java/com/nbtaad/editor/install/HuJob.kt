@@ -20,14 +20,25 @@ object HuJob {
         SshSession(host).use { ssh ->
             rep.say("Preparing room in the head unit's memory…", Level.INFO)
             val prep = ssh.exec(TileScripts.prepare(), timeoutMs = 30_000).text
-            val ram = prep.lines().firstOrNull { it.startsWith("RAM ") }?.removePrefix("RAM ")?.trim()
-                ?: throw IOException("The head unit's memory could not be reached from this connection, so nothing was sent.")
+            val places = prep.lines().firstOrNull { it.startsWith("RAM ") }?.removePrefix("RAM ")?.trim()?.split(Regex("\\s+"))
+            val tried = prep.lines().filter { it.startsWith("TRY ") }.joinToString("\n") { it.removePrefix("TRY ") }
+            if (places == null || places.size != 2) {
+                AppLog.w("Tile", "$tag: no place for the staging folder in the head unit's memory. The login said:\n${prep.trim()}")
+                throw IOException(
+                    "The head unit's memory could not be reached from this connection, so nothing was sent. " +
+                        "The log says what each place answered.",
+                )
+            }
+            if (tried.isNotEmpty()) AppLog.i("Tile", "$tag: staging in ${places[0]} (the places tried before it said:\n$tried)")
+            else AppLog.i("Tile", "$tag: staging in ${places[0]}")
+            val ram = places[0]
+            val there = places[1]
             for ((name, bytes) in files) {
                 upload(ssh, "$ram/$name", bytes)
                 rep.say("Sent $name (${bytes.size} bytes).", Level.INFO)
             }
             upload(ssh, "$ram/job.sh", job.toByteArray(Charsets.UTF_8))
-            val r = ssh.exec(TileScripts.start(ram, remount), timeoutMs = waitMs)
+            val r = ssh.exec(TileScripts.start(ram, remount, there), timeoutMs = waitMs)
             val report = TileScripts.parse(r.text)
             AppLog.i(
                 "Tile",
