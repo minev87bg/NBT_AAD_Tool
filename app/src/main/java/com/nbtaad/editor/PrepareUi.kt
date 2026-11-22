@@ -200,9 +200,10 @@ private fun CodingKeysSection(vm: MainViewModel) {
     Text("Coding keys", fontSize = 15.sp, fontWeight = FontWeight.Medium)
     Text(
         "Writing a coding bit needs two small keys recovered once from your own PSdZData — BMW's own dealer-level " +
-            "diagnostic data, not something this app ships or can fetch for you. Point RECOVER ON THIS PHONE at the " +
-            "psdzdata/security folder (or anything containing it, plus your PSdZ resource.jar) and both keys are " +
-            "recovered right here, no PC or Python needed. They're kept on this phone encrypted, never sent anywhere.",
+            "diagnostic data, not something this app ships or can fetch for you. Point RECOVER ON THIS PHONE at a " +
+            "folder containing the psdzdata/security files and the BMW logo resources — loose, zipped, or inside " +
+            "resource.jar, any of that works — and both keys are recovered right here, no PC or Python needed. " +
+            "They're kept on this phone encrypted, never sent anywhere.",
         fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
     )
     Button(
