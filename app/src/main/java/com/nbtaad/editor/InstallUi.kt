@@ -81,6 +81,21 @@ fun HubScreen(vm: MainViewModel) {
         )
         Spacer(Modifier.height(28.dp))
         HeroTile(
+            title = "Prepare headunit",
+            subtitle = if (vm.canPrepareHeadUnit) {
+                if (vm.detect.ssh) "SSH is open" else "Open its SSH"
+            } else "Connect the car's Ethernet (ENET) to use this",
+            info = "Gets the head unit ready for Android Auto to work without problems. Many of the issues people " +
+                "report trace back to a head unit whose coding leaves SSH closed or restricted.\n\nToday: opening SSH, " +
+                "which needs the car's own Ethernet gateway (ZGW), reached over an ENET cable, not the car's Android " +
+                "Auto WiFi. Checking and changing the head unit's own coding is coming next.",
+            icon = HubIcon.BINARY,
+            colors = listOf(Color(0xFF8FD8F2), Color(0xFF3DAEDE)),
+            ink = Color(0xFF07314A),
+            enabled = vm.canPrepareHeadUnit,
+        ) { vm.choosePrepare() }
+        Spacer(Modifier.height(12.dp))
+        HeroTile(
             title = "Install / update",
             subtitle = "NBT Android Auto" + vm.inst.shelf.count { it.installedAt == null }.let {
                 if (it > 0) " · $it saved file${if (it == 1) "" else "s"} waiting" else ""
@@ -139,13 +154,15 @@ private fun HeroTile(
     icon: HubIcon = HubIcon.INSTALL,
     colors: List<Color> = listOf(Color(0xFF7BC98A), Color(0xFF4E9F5E)),
     ink: Color = HeroText,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     var showInfo by remember { mutableStateOf(false) }
     Box(
         Modifier.fillMaxWidth().height(196.dp).clip(TileShape)
             .background(Brush.linearGradient(colors))
-            .clickable(onClick = onClick),
+            .alpha(if (enabled) 1f else 0.45f)
+            .clickable(enabled = enabled, onClick = onClick),
     ) {
         Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Box(
@@ -196,7 +213,7 @@ private fun IconSquare(icon: HubIcon, tint: Color, size: Dp) {
 }
 
 /** The icons of page 2, drawn here (24 x 24 grid, round line ends), so no icon library is needed. */
-private enum class HubIcon { INSTALL, SETTINGS, COMMUNITY, ADDON }
+private enum class HubIcon { INSTALL, SETTINGS, COMMUNITY, ADDON, BINARY }
 
 @Composable
 private fun HubIconView(icon: HubIcon, color: Color, size: Dp) {
@@ -241,6 +258,28 @@ private fun HubIconView(icon: HubIcon, color: Color, size: Dp) {
                     quadraticBezierTo(21f * k, 14f * k, 21f * k, 18.5f * k)
                 }
                 drawPath(far, color, style = stroke)
+            }
+            HubIcon.BINARY -> {
+                // 4 lines of 4 digits each (0 as a small circle, 1 as a short vertical stroke)
+                val cols = floatArrayOf(5.5f, 10f, 14.5f, 19f)
+                val rows = floatArrayOf(4.3f, 9.1f, 13.9f, 18.7f)
+                val bits = listOf(
+                    listOf(1, 0, 1, 1),
+                    listOf(0, 1, 0, 1),
+                    listOf(1, 1, 0, 0),
+                    listOf(0, 1, 1, 0),
+                )
+                for (r in rows.indices) {
+                    for (c in cols.indices) {
+                        val x = cols[c]
+                        val y = rows[r]
+                        if (bits[r][c] == 1) {
+                            line(x, y - 1.6f, x, y + 1.6f)
+                        } else {
+                            drawCircle(color, radius = 1.3f * k, center = o(x, y), style = stroke)
+                        }
+                    }
+                }
             }
         }
     }

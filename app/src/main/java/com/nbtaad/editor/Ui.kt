@@ -122,6 +122,7 @@ fun App(vm: MainViewModel) {
                 Screen.TILE -> AddOnsTheme { TileScreen(vm) }
                 Screen.MENULOOK -> AddOnsTheme { MenuLookScreen(vm) }
                 Screen.ADDONS -> AddOnsTheme { AddOnsScreen(vm) }
+                Screen.PREPARE -> PrepareTheme { PrepareScreen(vm) }
             }
             ThemeToggle(vm, Modifier.align(Alignment.TopStart).padding(4.dp))
         }

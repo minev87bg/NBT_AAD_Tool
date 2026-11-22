@@ -63,7 +63,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.coroutines.coroutineContext
 
-enum class Screen { DETECT, HUB, OPTIONS, INSTALL, EXPERIMENTAL, CONTRIBUTE, WIZARD, TILE, MENULOOK, ADDONS }
+enum class Screen { DETECT, HUB, OPTIONS, INSTALL, EXPERIMENTAL, CONTRIBUTE, WIZARD, TILE, MENULOOK, ADDONS, PREPARE }
 enum class UpdatePhase { IDLE, CHECKING, CURRENT, AVAILABLE, DOWNLOADING, FAILED }
 enum class SaveStatus { RUNNING, OK, FAIL }
 enum class LineKind { INFO, OK, ERROR }
@@ -866,6 +866,30 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** A reset can be sent: through the car's gateway, or, on the car's Android Auto WiFi where there is none, asked of the head unit's shell. */
     val canResetHeadUnit: Boolean get() = (detect.zgw != null && detect.vin != null) || (detect.hu != null && detect.ssh)
 
+    /**
+     * The head unit can be prepared: today that means opening its SSH, which needs the car's own Ethernet gateway
+     * (ZGW); already having SSH is enough too, so the page still shows that it is open.
+     */
+    val canPrepareHeadUnit: Boolean get() = detect.zgw != null || (detect.hu != null && detect.ssh)
+
+    /** CHECK AGAIN on the Prepare headunit page: looks for the car again, keeping what is shown until new results arrive. */
+    fun recheckHeadUnit() {
+        if (busy) return
+        busy = true
+        feedbackError = false
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                NetworkBinder.bindToLocalNetwork(ctx)
+                val r = detectCar { feedback = it }
+                applyResult(r)
+            } catch (e: Exception) {
+                AppLog.e("Detect", "Checking the head unit again failed", e)
+            } finally {
+                busy = false
+            }
+        }
+    }
+
     /** Why the last look for the car, started by an action that needed it, found no head unit (null: it found one). */
     @Volatile
     private var scanProblem: String? = null
@@ -941,6 +965,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun chooseInstall() {
         inst.open()
         screen = Screen.INSTALL
+    }
+
+    /**
+     * "Prepare headunit": today, a way to its own GitHub-adjacent SSH access (opening it needs the car's Ethernet
+     * gateway, ZGW); later, checking and changing its coding as well.
+     */
+    fun choosePrepare() {
+        screen = Screen.PREPARE
     }
 
     /** "Experimental": issues and pull requests of the project. */
