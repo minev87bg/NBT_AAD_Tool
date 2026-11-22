@@ -121,16 +121,33 @@ fun PrepareScreen(vm: MainViewModel) {
         Spacer(Modifier.height(24.dp))
         Text("What Android Auto needs coded", fontSize = 15.sp, fontWeight = FontWeight.Medium)
         Text(
-            "Sq00ky's own project lists these as the head unit coding Android Auto needs; without them the car can " +
-                "refuse the phone's link outright. Checking and setting them here, over the same Ethernet gateway and " +
-                "without touching the Vehicle Order, is coming next.",
+            "Sq00ky's own project lists these as the head unit coding Android Auto needs, WiFi Direct included; " +
+                "without them the car can refuse the phone's link outright. This reads them straight from the head " +
+                "unit over the same Ethernet gateway — nothing is written, and the Vehicle Order is never touched.",
             fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
         )
-        for (item in CODING_REQUIREMENTS) {
-            Column(Modifier.padding(top = 10.dp)) {
-                Text(item.group, fontSize = 11.sp, color = muted, fontWeight = FontWeight.Medium)
-                for (bit in item.bits) {
-                    Text("$bit → AKTIV", fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
+        OutlinedButton(
+            onClick = { vm.checkCodings() },
+            enabled = vm.detect.zgw != null && !vm.codingChecking,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text(if (vm.codingChecking) "CHECKING CODINGS…" else "CHECK CODINGS") }
+        if (vm.codingChecking) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
+
+        val results = vm.codingResults
+        if (results == null) {
+            if (!vm.codingChecking) {
+                Text(
+                    "Not checked yet.",
+                    fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+        } else {
+            for ((group, bits) in results.groupBy { it.bit.group }) {
+                Column(Modifier.padding(top = 14.dp)) {
+                    Text(group, fontSize = 11.sp, color = muted, fontWeight = FontWeight.Medium)
+                    for (r in bits) {
+                        CodingRow(r)
+                    }
                 }
             }
         }
@@ -138,14 +155,22 @@ fun PrepareScreen(vm: MainViewModel) {
     }
 }
 
-/** One coding group from Sq00ky's own coding-requirements.md, and the bits in it that must be AKTIV. */
-private class CodingGroup(val group: String, val bits: List<String>)
-
-private val CODING_REQUIREMENTS = listOf(
-    CodingGroup("3000 HMI", listOf("REMOTE_HMI", "A4A", "A4A_REMOTE_APS")),
-    CodingGroup("3002 AUDIO_TUNER_TRAFFIC", listOf("A4A_ANDROID")),
-    CodingGroup("3003 TELEFON_TELEMATIK_ONLINE", listOf("A4A_WIRELESS_ANDROID")),
-)
+@Composable
+private fun CodingRow(r: com.nbtaad.editor.net.CodingResult) {
+    val (dotColor, note) = when (r.status) {
+        com.nbtaad.editor.net.CodingStatus.SET -> Green to "Set"
+        com.nbtaad.editor.net.CodingStatus.NOT_SET -> Red to "Not set (reads as ${r.rawValue})"
+        com.nbtaad.editor.net.CodingStatus.UNCERTAIN -> MaterialTheme.colorScheme.onSurfaceVariant to "Reads as ${r.rawValue} — check on the car"
+        com.nbtaad.editor.net.CodingStatus.UNREADABLE -> MaterialTheme.colorScheme.onSurfaceVariant to "Couldn't read"
+    }
+    Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(8.dp).clip(CircleShape).background(dotColor))
+        Column(Modifier.padding(start = 10.dp)) {
+            Text("${r.bit.token} — ${r.bit.description}", fontSize = 13.sp)
+            Text(note, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
 
 @Composable
 private fun StatusRow(label: String, value: String?, found: Boolean) {

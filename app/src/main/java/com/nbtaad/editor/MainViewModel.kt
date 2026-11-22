@@ -890,6 +890,30 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** What "Check codings" on the Prepare headunit page last found; null before it has run once. */
+    var codingResults by mutableStateOf<List<com.nbtaad.editor.net.CodingResult>?>(null)
+    var codingChecking by mutableStateOf(false)
+
+    /**
+     * "Check codings": reads the handful of individual coding bits Android Auto needs straight from
+     * the head unit over the car's Ethernet gateway (ZGW) and reports which are already set. A plain
+     * read — no SecurityAccess, no key, nothing written to the car or its Vehicle Order.
+     */
+    fun checkCodings() {
+        val ip = detect.zgw ?: return
+        if (codingChecking) return
+        codingChecking = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                codingResults = com.nbtaad.editor.net.CodingCheck.checkAll(ip)
+            } catch (e: Exception) {
+                AppLog.e("Coding", "Checking the coding bits failed", e)
+            } finally {
+                codingChecking = false
+            }
+        }
+    }
+
     /** Why the last look for the car, started by an action that needed it, found no head unit (null: it found one). */
     @Volatile
     private var scanProblem: String? = null

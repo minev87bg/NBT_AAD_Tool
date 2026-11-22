@@ -90,6 +90,49 @@ object Hsfz {
         return Frame(type, p)
     }
 
+    /**
+     * Reads one coding datagroup's page of bytes from the head unit (UDS `22 <dg>`, plain read, no SecurityAccess —
+     * the same call the project's own coding-reading tools use). Null when the gateway doesn't answer, the head unit
+     * doesn't have that datagroup, or anything else goes wrong; never throws.
+     */
+    fun readCodingDatagroup(zgwIp: String, datagroup: Int): ByteArray? {
+        return try {
+            Socket().use { s ->
+                s.tcpNoDelay = true
+                s.connect(InetSocketAddress(zgwIp, TCP_PORT), 2000)
+                s.soTimeout = 2500
+                val dgHi = (datagroup ushr 8).toByte()
+                val dgLo = datagroup.toByte()
+                val uds = byteArrayOf(0x22, dgHi, dgLo)
+                s.getOutputStream().write(diagFrame(TESTER, HEAD_UNIT, uds))
+                s.getOutputStream().flush()
+                val deadline = System.currentTimeMillis() + 4000
+                while (System.currentTimeMillis() < deadline) {
+                    val f = readFrame(s.getInputStream()) ?: break
+                    if (f.type != CW_DIAG || f.payload.size < 3) continue
+                    val uresp = f.payload.copyOfRange(2, f.payload.size) // drop src, dst
+                    when (uresp[0].toInt() and 0xFF) {
+                        0x62 -> {
+                            if (uresp.size >= 3 && uresp[1] == dgHi && uresp[2] == dgLo) {
+                                return uresp.copyOfRange(3, uresp.size)
+                            }
+                        }
+                        0x7F -> {
+                            val nrc = if (uresp.size >= 3) uresp[2].toInt() and 0xFF else -1
+                            if (nrc == 0x78) continue // response pending, keep waiting
+                            AppLog.d("HSFZ", "Reading datagroup 0x%04X: rejected (0x%02X)".format(datagroup, nrc))
+                            return null
+                        }
+                    }
+                }
+                null
+            }
+        } catch (e: Exception) {
+            AppLog.d("HSFZ", "Reading datagroup 0x%04X from $zgwIp failed: ${e.javaClass.simpleName}: ${e.message}".format(datagroup))
+            null
+        }
+    }
+
     /** Reads the VIN from the ZGW (UDS 22 F190). Used only when the UDP discovery gave no VIN. */
     fun readVin(zgwIp: String): String? {
         return try {
