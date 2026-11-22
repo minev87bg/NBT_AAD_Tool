@@ -591,24 +591,25 @@ private fun AiCard(text: String, onHide: () -> Unit) {
 }
 
 @Composable
-private fun AiKeyDialog(exp: ExperimentalController) {
+internal fun AiKeyDialog(
+    exp: ExperimentalController,
+    title: String = "AI summary",
+    what: String = "SUMMARIZE WITH AI sends the text of the open page (title, first post and comments, all public on " +
+        "GitHub) to Claude, an AI model from Anthropic, which writes a short summary. That needs your own " +
+        "Anthropic API key.",
+    cost: String = "Anthropic bills each summary to your account; a page usually costs about a cent or less, and the " +
+        "console shows your usage.",
+) {
     var text by remember { mutableStateOf("") }
     val uri = LocalUriHandler.current
     AlertDialog(
         onDismissRequest = { exp.closeKeyDialog() },
-        title = { Text("AI summary") },
+        title = { Text(title) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(what, fontSize = 13.sp)
                 Text(
-                    "SUMMARIZE WITH AI sends the text of the open page (title, first post and comments, all public on " +
-                        "GitHub) to Claude, an AI model from Anthropic, which writes a short summary. That needs your own " +
-                        "Anthropic API key.",
-                    fontSize = 13.sp,
-                )
-                Text(
-                    "To get one: sign in at console.anthropic.com, add a little credit and create a key under API keys. " +
-                        "Anthropic bills each summary to your account; a page usually costs about a cent or less, and the " +
-                        "console shows your usage.",
+                    "To get one: sign in at console.anthropic.com, add a little credit and create a key under API keys. $cost",
                     fontSize = 13.sp,
                     modifier = Modifier.padding(top = 8.dp),
                 )
