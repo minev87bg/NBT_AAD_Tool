@@ -105,6 +105,19 @@ class AddOnCatalogTest {
     }
 
     @Test
+    fun theCutNeverLeavesALinkOrCodeOpen() {
+        val inLink = "Start here and read on. [issue #55](https://github.com/Sq00ky/Supra-iDrive6-Android-Auto/issues/55) and more words after it"
+        val d = AddOnCatalog.notesDigest(inLink, 50)
+        assertEquals("Start here and read on. …", d)
+        val whole = "See [issue #55](https://x.y/55) for the details of what changed in this build and more"
+        assertTrue(AddOnCatalog.notesDigest(whole, 40).contains("[issue #55](https://x.y/55)"))
+        assertEquals(-1, AddOnCatalog.openMarkup("a [b](https://c.d) and `e` and **f**"))
+        assertEquals(4, AddOnCatalog.openMarkup("one `code that goes on"))
+        assertEquals(4, AddOnCatalog.openMarkup("one **bold that goes on"))
+        assertEquals(4, AddOnCatalog.openMarkup("one ![a pic](https://c.d/"))
+    }
+
+    @Test
     fun notesAreCutShortAtAWordOrLine() {
         assertEquals("Short note.", AddOnCatalog.notesDigest("  Short note.\r\n"))
         val long = "First line.\n" + "word ".repeat(200)

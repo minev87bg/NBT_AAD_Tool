@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nbtaad.editor.addon.AddOnCatalog
 import com.nbtaad.editor.addon.CatalogEntry
+import com.nbtaad.editor.experimental.Markdown
 import kotlin.math.pow
 
 /**
@@ -192,7 +193,11 @@ private fun AddOnPage(vm: MainViewModel, entry: CatalogEntry) {
         if (message != null) Text(message, fontSize = 12.sp, color = Red, modifier = Modifier.padding(top = 6.dp))
         if (found != null && found.release.notes.isNotBlank()) {
             TextButton(onClick = { notes = !notes }) { Text(if (notes) "HIDE WHAT'S NEW" else "WHAT'S NEW IN ${found.release.tag}", fontSize = 12.sp) }
-            if (notes) Text(AddOnCatalog.notesDigest(found.release.notes), fontSize = 12.sp, color = muted)
+            if (notes) {
+                // the notes are Markdown from GitHub: links in them open, bold and code look as they do there
+                val blocks = remember(found.release.notes) { Markdown.parse(AddOnCatalog.notesDigest(found.release.notes)) }
+                MarkdownView(blocks, size = 12.sp)
+            }
         }
         Spacer(Modifier.height(32.dp))
     }

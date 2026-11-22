@@ -120,12 +120,32 @@ object AddOnCatalog {
         else -> Plan(Do.NOTHING, "NOT FOUND", "No release of it was found on GitHub.")
     }
 
-    /** What to tell about a release's notes on the card: the first lines, cut at a sensible length. */
+    /**
+     * What to tell about a release's notes on the card: the first lines, cut at a sensible length. The notes are Markdown
+     * and are drawn as such, so the cut never leaves a link, a code span or bold text open at its end.
+     */
     fun notesDigest(notes: String, max: Int = 500): String {
         val t = notes.replace("\r\n", "\n").replace('\r', '\n').trim().replace(Regex("\n{3,}"), "\n\n")
         if (t.length <= max) return t
         val cut = t.take(max)
         val at = maxOf(cut.lastIndexOf('\n'), cut.lastIndexOf(". ") + 1, cut.lastIndexOf(' '))
-        return (if (at > max / 2) cut.take(at) else cut).trimEnd() + " …"
+        var out = (if (at > max / 2) cut.take(at) else cut).trimEnd()
+        val open = openMarkup(out)
+        if (open > max / 4) out = out.take(open).trimEnd()
+        return "$out …"
     }
+
+    /** Where a link, an image, a code span or bold text is still open at the end of [s]; -1 when none is. */
+    internal fun openMarkup(s: String): Int {
+        val found = ArrayList<Int>()
+        val bracket = s.lastIndexOf('[')
+        if (bracket >= 0 && !COMPLETE_LINK.containsMatchIn(s.substring(bracket))) {
+            found += if (bracket > 0 && s[bracket - 1] == '!') bracket - 1 else bracket
+        }
+        if (s.count { it == '`' } % 2 == 1) found += s.lastIndexOf('`')
+        if (Regex("\\*\\*").findAll(s).count() % 2 == 1) found += s.lastIndexOf("**")
+        return found.minOrNull() ?: -1
+    }
+
+    private val COMPLETE_LINK = Regex("^\\[[^\\]]*]\\([^)\\s]*\\)")
 }
