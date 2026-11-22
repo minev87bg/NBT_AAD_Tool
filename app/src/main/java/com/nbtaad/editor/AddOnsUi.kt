@@ -1,8 +1,6 @@
 package com.nbtaad.editor
 
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -45,7 +43,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nbtaad.editor.addon.AddOnCatalog
 import com.nbtaad.editor.addon.CatalogEntry
-import com.nbtaad.editor.addon.ShelfIndex
 import kotlin.math.pow
 
 /**
@@ -65,10 +62,6 @@ fun AddOnsScreen(vm: MainViewModel) {
 private fun AddOnList(vm: MainViewModel) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val a = vm.addOns
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        vm.pickAddOn(uris)
-    }
-    val strangers = vm.inst.shelf.filter { it.summary == ShelfIndex.TILE_KIND || it.summary == ShelfIndex.MENU_LOOK_KIND }
     val followed = AddOnCatalog.PROJECTS.joinToString(", ") { it.name }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
@@ -95,31 +88,6 @@ private fun AddOnList(vm: MainViewModel) {
 
         AddOnCatalog.ENTRIES.forEachIndexed { i, entry -> AddOnRow(vm, entry, i) }
 
-        Text("Have the zip already?", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 22.dp))
-        Text(
-            "A zip of an approved add-on that is on this phone: the app recognizes which one it is and keeps a copy.",
-            fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp),
-        )
-        OutlinedButton(onClick = { picker.launch(arrayOf("*/*")) }, enabled = !vm.addOnBusy, modifier = Modifier.padding(top = 8.dp).fillMaxWidth()) {
-            Text("A ZIP FROM THIS PHONE…")
-        }
-        if (vm.addOnBusy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
-        if (vm.addOnMessage.isNotEmpty()) {
-            Text(vm.addOnMessage, fontSize = 12.sp, color = if (vm.addOnBusy) muted else Red, modifier = Modifier.padding(top = 8.dp))
-        }
-
-        if (strangers.isNotEmpty()) {
-            Text("Saved on this phone", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 20.dp))
-            for (item in strangers) {
-                Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(item.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Text(item.summary + (item.version?.let { " · $it" } ?: "") + " · " + item.origin, fontSize = 11.sp, color = muted)
-                    }
-                    TextButton(onClick = { vm.inst.useShelf(item) }) { Text("CHOOSE", fontSize = 12.sp) }
-                }
-            }
-        }
         Spacer(Modifier.height(32.dp))
     }
 }

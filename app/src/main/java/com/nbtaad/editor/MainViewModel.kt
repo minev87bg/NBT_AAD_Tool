@@ -174,12 +174,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         openTileWith(file, origin, pageUrl, shelfId)
     }
 
-    /** What the Add-ons page says about the zip that was picked (empty when all is well). */
-    var addOnMessage by mutableStateOf("")
-
     /** The add-on whose page is open on the Add-ons screen (its catalog id); null: the list. */
     var addOnOpen by mutableStateOf<String?>(null)
-    var addOnBusy by mutableStateOf(false); private set
 
     /**
      * Keeps [file] on the phone (so it is there without a car and after the app was closed) and opens the page of the
@@ -191,36 +187,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         return openTileWith(file, origin, null, kept?.id)
     }
 
-    /** "A zip from this phone" on the Add-ons page. */
-    fun pickAddOn(uris: List<android.net.Uri>) {
-        if (uris.isEmpty() || addOnBusy) return
-        addOnBusy = true
-        addOnMessage = "Reading the file…"
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            try {
-                val files = com.nbtaad.editor.install.ReleasesApi.readPicked(ctx, uris)
-                val f = files.firstOrNull()
-                if (f != null && openAddOnFile(f, "a file from this phone")) {
-                    addOnMessage = ""
-                } else {
-                    addOnMessage = (f?.name?.let { "$it is" } ?: "This is") + " not the Android Auto tile or the menu look. " +
-                        "The tile zip holds aa-tile, aa-tile-launcher.sh and hook.txt; the menu look zip holds aa-look. " +
-                        "A build of NBT-AAD goes to Install / update."
-                }
-            } catch (e: Exception) {
-                AppLog.e("AddOns", "Reading the picked file failed", e)
-                addOnMessage = "Could not read the file: ${e.message ?: e.javaClass.simpleName}"
-            } finally {
-                addOnBusy = false
-            }
-        }
-    }
-
     fun chooseAddOns() {
         // the list needs the files kept on the phone and the releases of the add-ons, not a look for the car: that is done
         // when an add-on's own page opens (and a tap on an add-on must not wait for it)
         inst.loadShelf()
-        addOnMessage = ""
         addOnOpen = null
         addOns.visit()
         screen = Screen.ADDONS
