@@ -42,6 +42,7 @@ class MenuLookScriptsTest {
 
     @After
     fun clean() {
+        RemoteScripts.pathFix = RemoteScripts.PATH_FIX
         if (this::root.isInitialized) root.deleteRecursively()
     }
 
