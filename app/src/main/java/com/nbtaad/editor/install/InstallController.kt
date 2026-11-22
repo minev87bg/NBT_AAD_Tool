@@ -70,6 +70,9 @@ class InstallController(
     /** Set by the app: takes a kept file that is the tile add-on to its own page; true when it did. */
     var onTile: ((SourceFile, ShelfItem) -> Boolean)? = null
 
+    /** Set by the app: takes a file picked on the phone to the page of the add-on it is (the tile, the menu look); true when it did. */
+    var onAddOnFile: ((SourceFile) -> Boolean)? = null
+
     // the files kept on the phone for later (see ShelfStore)
     private val shelfStore = ShelfStore(ctx)
     var shelf by mutableStateOf<List<ShelfItem>>(emptyList()); private set
@@ -216,6 +219,11 @@ class InstallController(
             try {
                 val files = ReleasesApi.readPicked(ctx, uris)
                 prepMessage = "Checking the files…"
+                // a zip of an add-on (the Android Auto tile, the menu look) has a page of its own
+                if (files.size == 1 && onAddOnFile?.invoke(files[0]) == true) {
+                    prepMessage = ""
+                    return@launch
+                }
                 val pkg = BuildPackage.of(files)
                 val title = if (files.size == 1) files[0].name else "${files.size} files"
                 finishPrep(PackageView(pkg, SourceKind.PHONE, title), title)

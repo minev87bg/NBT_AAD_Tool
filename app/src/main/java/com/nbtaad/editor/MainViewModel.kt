@@ -58,7 +58,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.coroutines.coroutineContext
 
-enum class Screen { DETECT, HUB, OPTIONS, INSTALL, EXPERIMENTAL, CONTRIBUTE, WIZARD, TILE, MENULOOK }
+enum class Screen { DETECT, HUB, OPTIONS, INSTALL, EXPERIMENTAL, CONTRIBUTE, WIZARD, TILE, MENULOOK, ADDONS }
 enum class UpdatePhase { IDLE, CHECKING, CURRENT, AVAILABLE, DOWNLOADING, FAILED }
 enum class SaveStatus { RUNNING, OK, FAIL }
 enum class LineKind { INFO, OK, ERROR }
@@ -151,6 +151,67 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         return true
     }
 
+    /** What the Add-ons page says about the zip that was picked (empty when all is well). */
+    var addOnMessage by mutableStateOf("")
+    var addOnBusy by mutableStateOf(false); private set
+
+    /**
+     * Keeps [file] on the phone (so it is there without a car and after the app was closed) and opens the page of the
+     * add-on it is; false when it is neither the tile nor the menu look.
+     */
+    private fun openAddOnFile(file: SourceFile, origin: String): Boolean {
+        if (AddOns.tileKitOf(file.name, file.bytes) == null && AddOns.menuLookKitOf(file.name, file.bytes) == null) return false
+        val kept = inst.keepForLater(file, origin, null, null)
+        return openTileWith(file, origin, null, kept?.id)
+    }
+
+    /** "A zip from this phone" on the Add-ons page. */
+    fun pickAddOn(uris: List<android.net.Uri>) {
+        if (uris.isEmpty() || addOnBusy) return
+        addOnBusy = true
+        addOnMessage = "Reading the file…"
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val files = com.nbtaad.editor.install.ReleasesApi.readPicked(ctx, uris)
+                val f = files.firstOrNull()
+                if (f != null && openAddOnFile(f, "a file from this phone")) {
+                    addOnMessage = ""
+                } else {
+                    addOnMessage = (f?.name?.let { "$it is" } ?: "This is") + " not the Android Auto tile or the menu look. " +
+                        "The tile zip holds aa-tile, aa-tile-launcher.sh and hook.txt; the menu look zip holds aa-look. " +
+                        "A build of NBT-AAD goes to Install / update."
+                }
+            } catch (e: Exception) {
+                AppLog.e("AddOns", "Reading the picked file failed", e)
+                addOnMessage = "Could not read the file: ${e.message ?: e.javaClass.simpleName}"
+            } finally {
+                addOnBusy = false
+            }
+        }
+    }
+
+    /** The tile page, for a file that is already loaded. */
+    fun openTilePage() {
+        if (tile.shown == null) return
+        tileFrom = Screen.ADDONS
+        inst.open()
+        screen = Screen.TILE
+    }
+
+    /** The menu look page, for a file that is already loaded. */
+    fun openMenuLookPage() {
+        if (menuLook.shown == null) return
+        tileFrom = Screen.ADDONS
+        inst.open()
+        screen = Screen.MENULOOK
+    }
+
+    fun chooseAddOns() {
+        inst.open()
+        addOnMessage = ""
+        screen = Screen.ADDONS
+    }
+
     fun closeTile() {
         screen = if (tileFrom == Screen.TILE || tileFrom == Screen.MENULOOK) Screen.HUB else tileFrom
     }
@@ -158,6 +219,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun closeMenuLook() = closeTile()
 
     init {
+        inst.onAddOnFile = { file -> openAddOnFile(file, "a file from this phone") }
         inst.onTile = { file, item -> openTileWith(file, item.origin.ifBlank { "kept on this phone" }, item.pageUrl, item.id) }
     }
 

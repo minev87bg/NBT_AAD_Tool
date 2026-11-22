@@ -97,6 +97,16 @@ fun HubScreen(vm: MainViewModel) {
             info = "Edit nbt-aad.env on the head unit: every setting of the daemon, what it does, and which are applied now.",
         ) { vm.chooseSettings() }
         Spacer(Modifier.height(12.dp))
+        WideTile(
+            icon = HubIcon.ADDON,
+            tint = Color(0xFF8E6BC9),
+            title = "Add-ons",
+            subtitle = "Android Auto tile · menu look",
+            info = "Extras by deathwalker80 that come as zip files: the Android Auto tile in the iDrive main menu, and the " +
+                "menu look that makes the CarLife entry read \"Android Auto\". Pick a zip from this phone, or take one " +
+                "from the community pages (LOOK INSIDE, then TRY TO INSTALL). Each has a test or check, and a way back.",
+        ) { vm.chooseAddOns() }
+        Spacer(Modifier.height(12.dp))
         HeroTile(
             title = "Browse community for more",
             subtitle = "Issues, builds and tests",
@@ -186,7 +196,7 @@ private fun IconSquare(icon: HubIcon, tint: Color, size: Dp) {
 }
 
 /** The icons of page 2, drawn here (24 x 24 grid, round line ends), so no icon library is needed. */
-private enum class HubIcon { INSTALL, SETTINGS, COMMUNITY }
+private enum class HubIcon { INSTALL, SETTINGS, COMMUNITY, ADDON }
 
 @Composable
 private fun HubIconView(icon: HubIcon, color: Color, size: Dp) {
@@ -210,6 +220,11 @@ private fun HubIconView(icon: HubIcon, color: Color, size: Dp) {
                 line(12f, 17f, 20f, 17f)
                 drawCircle(color, radius = 2.4f * k, center = o(15f, 7f), style = stroke)
                 drawCircle(color, radius = 2.4f * k, center = o(9f, 17f), style = stroke)
+            }
+            HubIcon.ADDON -> {
+                // a plus
+                line(12f, 5f, 12f, 19f)
+                line(5f, 12f, 19f, 12f)
             }
             HubIcon.COMMUNITY -> {
                 // two people: a head each and the line of the shoulders
@@ -295,7 +310,7 @@ fun InstallScreen(vm: MainViewModel) {
                 ) { Text("A file from this phone…") }
                 Text(
                     "Pick a zip, or the loose files (nbt-aad, Releases.zip, libNbtAad.so …). The app looks inside zip " +
-                        "files and tells you if it is a build.",
+                        "files and tells you if it is a build. The Android Auto tile and the menu look are on the Add-ons page.",
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),

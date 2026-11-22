@@ -73,8 +73,8 @@ fun MenuLookScreen(vm: MainViewModel) {
             fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 4.dp),
         )
         if (s == null) {
-            Text("No menu look file is chosen. Open one from LOOK INSIDE on the Experimental page, or from \"Saved on this phone\".", fontSize = 13.sp, modifier = Modifier.padding(top = 16.dp))
-            OutlinedButton(onClick = { vm.closeMenuLook() }, modifier = Modifier.padding(top = 12.dp)) { Text("BACK") }
+            Text("No menu look file is chosen. Pick the zip on the Add-ons page.", fontSize = 13.sp, modifier = Modifier.padding(top = 16.dp))
+            OutlinedButton(onClick = { vm.chooseAddOns() }, modifier = Modifier.padding(top = 12.dp)) { Text("GO TO ADD-ONS") }
             return@Column
         }
 
