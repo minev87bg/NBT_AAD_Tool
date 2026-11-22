@@ -92,6 +92,7 @@ fun App(vm: MainViewModel) {
                 Screen.CONTRIBUTE -> ContributeScreen(vm)
                 Screen.WIZARD -> WizardScreen(vm)
                 Screen.TILE -> TileScreen(vm)
+                Screen.MENULOOK -> MenuLookScreen(vm)
             }
             ThemeToggle(vm, Modifier.align(Alignment.TopEnd).padding(4.dp))
         }

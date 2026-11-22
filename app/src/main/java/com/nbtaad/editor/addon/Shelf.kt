@@ -49,6 +49,7 @@ object ShelfIndex {
 
     /** What a kept tile add-on is called on the shelf. */
     const val TILE_KIND = "Android Auto tile (add-on)"
+    const val MENU_LOOK_KIND = "Menu look (add-on)"
 
     /** Short words for what a set of files is. */
     fun kindText(kind: Kind): String = when (kind) {

@@ -35,7 +35,7 @@ object TileScripts {
     /** How long the test run keeps the tile on the iDrive (the program's own time limit, as in the author's test-ram.sh). */
     const val TEST_SECONDS = 120
 
-    private fun sh(body: String): String = (RemoteScripts.pathFix + body.trimIndent()).replace('¤', '$')
+    internal fun sh(body: String): String = (RemoteScripts.pathFix + body.trimIndent()).replace('¤', '$')
 
     // ---- on the SSH login ----
 
@@ -45,7 +45,7 @@ object TileScripts {
         RAM=/net/hu-omap/dev/shmem
         if [ ! -d ¤RAM ]; then RAM=/dev/shmem; fi
         mkdir ¤RAM/$STAGE_DIR 2>/dev/null
-        rm -f ¤RAM/$STAGE_DIR/aa-tile ¤RAM/$STAGE_DIR/aa-tile-launcher.sh ¤RAM/$STAGE_DIR/hook.txt ¤RAM/$STAGE_DIR/job.sh ¤RAM/$STAGE_DIR/out
+        rm -f ¤RAM/$STAGE_DIR/*
         if [ -d ¤RAM/$STAGE_DIR ]; then echo "RAM ¤RAM/$STAGE_DIR"; else echo "NORAM"; fi
         exit 0
         """
@@ -68,7 +68,7 @@ object TileScripts {
                 rm -f $ram/out
                 $run < /dev/null > /dev/null 2>&1
                 if [ -f $ram/out ]; then cat $ram/out; else echo "NOREPORT"; fi
-                rm -f $ram/aa-tile $ram/aa-tile-launcher.sh $ram/hook.txt $ram/job.sh $ram/out
+                rm -f $ram/*
                 exit 0
                 """
         )
@@ -299,7 +299,8 @@ object TileScripts {
                 line.startsWith("OK ") -> ok += line.removePrefix("OK ")
                 line.startsWith("INFO ") -> info += line.removePrefix("INFO ")
                 line.startsWith("WARN ") -> warn += line.removePrefix("WARN ")
-                line.startsWith("ERR ") -> error = line.removePrefix("ERR ")
+                // the first error is the reason; later ones are what followed from it
+                line.startsWith("ERR ") -> if (error == null) error = line.removePrefix("ERR ") else warn += line.removePrefix("ERR ")
                 line.startsWith("RC ") -> rc = line.removePrefix("RC ").trim().toIntOrNull()
                 line.startsWith("END ") -> finished = true
             }

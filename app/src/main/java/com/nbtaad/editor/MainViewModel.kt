@@ -22,6 +22,7 @@ import com.nbtaad.editor.env.EnvDoc
 import com.nbtaad.editor.env.Opt
 import com.nbtaad.editor.addon.AddOns
 import com.nbtaad.editor.install.InstallController
+import com.nbtaad.editor.install.MenuLookController
 import com.nbtaad.editor.install.SourceFile
 import com.nbtaad.editor.install.TileController
 import com.nbtaad.editor.experimental.ExperimentalController
@@ -57,7 +58,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.coroutines.coroutineContext
 
-enum class Screen { DETECT, HUB, OPTIONS, INSTALL, EXPERIMENTAL, CONTRIBUTE, WIZARD, TILE }
+enum class Screen { DETECT, HUB, OPTIONS, INSTALL, EXPERIMENTAL, CONTRIBUTE, WIZARD, TILE, MENULOOK }
 enum class UpdatePhase { IDLE, CHECKING, CURRENT, AVAILABLE, DOWNLOADING, FAILED }
 enum class SaveStatus { RUNNING, OK, FAIL }
 enum class LineKind { INFO, OK, ERROR }
@@ -124,21 +125,37 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** The page the tile page was opened from, for its back button. */
     private var tileFrom = Screen.EXPERIMENTAL
 
+    /** The page of the menu look add-on (the label and pictures of the CarLife entry). */
+    val menuLook = MenuLookController(
+        ctx, viewModelScope, host = { detect.hu }, rescan = { rescanForHost() }, problem = { scanProblem },
+    )
+
     /**
-     * Takes [file] to the tile page when it is the tile add-on (and the app can read its files); false for anything else.
+     * Takes [file] to the page of the add-on it is (the tile, or the menu look) when the app can read its files; false
+     * for anything else, which goes to the installer.
      */
     private fun openTileWith(file: SourceFile, origin: String, pageUrl: String?, shelfId: String?): Boolean {
-        val kit = AddOns.tileKitOf(file.name, file.bytes) ?: return false
-        tile.show(TileController.Shown(kit, file.name, origin, pageUrl, shelfId))
-        if (screen != Screen.TILE) tileFrom = screen
+        val kit = AddOns.tileKitOf(file.name, file.bytes)
+        if (kit != null) {
+            tile.show(TileController.Shown(kit, file.name, origin, pageUrl, shelfId))
+            if (screen != Screen.TILE && screen != Screen.MENULOOK) tileFrom = screen
+            inst.open()
+            screen = Screen.TILE
+            return true
+        }
+        val look = AddOns.menuLookKitOf(file.name, file.bytes) ?: return false
+        menuLook.show(MenuLookController.Shown(look, file.name, origin, pageUrl, shelfId))
+        if (screen != Screen.TILE && screen != Screen.MENULOOK) tileFrom = screen
         inst.open()
-        screen = Screen.TILE
+        screen = Screen.MENULOOK
         return true
     }
 
     fun closeTile() {
-        screen = if (tileFrom == Screen.TILE) Screen.HUB else tileFrom
+        screen = if (tileFrom == Screen.TILE || tileFrom == Screen.MENULOOK) Screen.HUB else tileFrom
     }
+
+    fun closeMenuLook() = closeTile()
 
     init {
         inst.onTile = { file, item -> openTileWith(file, item.origin.ifBlank { "kept on this phone" }, item.pageUrl, item.id) }

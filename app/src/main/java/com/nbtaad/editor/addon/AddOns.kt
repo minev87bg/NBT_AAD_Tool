@@ -80,6 +80,14 @@ object AddOns {
             needs = "nbt-aad 1.8.66 or newer, and the CarLife widget file on the head unit",
             recipe = true,
         ),
+        KnownAddOn(
+            id = "aa-menu-look",
+            title = "aa-menu-look",
+            by = "deathwalker80",
+            files = listOf("aa-look"),
+            needs = "the head unit's menu texts of a BMW or MINI NBT Evo (and, to be useful, the tile or the CarLife entry)",
+            recipe = true,
+        ),
     )
 
     private val NOTE_NAMES = Regex("""(?i)^(readme.*|license.*|licence.*|changelog.*|sha256sums.*|.*\.md)$""")
@@ -121,6 +129,13 @@ object AddOns {
         val rec = recognize(ZipSurvey.survey(name, zip), zip)
         if (rec.match != Match.KNOWN_ADDON || rec.addOn != "nbt-aa-tile") return null
         return TileKits.parse(zip).takeIf { it.ok }
+    }
+
+    /** What the zip is, when it is the menu look add-on and the app can read it: the kit for the menu look page. */
+    fun menuLookKitOf(name: String, zip: ByteArray): MenuLookKit? {
+        val rec = recognize(ZipSurvey.survey(name, zip), zip)
+        if (rec.match != Match.KNOWN_ADDON || rec.addOn != "aa-menu-look") return null
+        return MenuLookKits.parse(zip).takeIf { it.ok }
     }
 
     /** [zip] is the file's bytes: with them an add-on that has a recipe is read for real, without them it is only named. */
@@ -173,6 +188,9 @@ object AddOns {
             if (have && program && k.recipe && k.id == "nbt-aa-tile" && zip != null) {
                 return recognizeTile(k, s, zip, facts, problems)
             }
+            if (have && program && k.recipe && k.id == "aa-menu-look" && zip != null) {
+                return recognizeMenuLook(k, s, zip, facts, problems)
+            }
             if (have && program) {
                 // only named: the zip's bytes were not given (or the add-on has no recipe), so nothing is judged or applied
                 facts += "The file set of ${k.title} by ${k.by}."
@@ -221,6 +239,28 @@ object AddOns {
             verdict = if (ok) "Installable now: ${kit.title}, the Android Auto tile (test first, then install)." else "Cannot be installed: $why",
             headline = if (ok) "Installable now" else "Cannot be installed",
             answer = if (ok) "Yes. The app can install this now: it adds the Android Auto tile to the iDrive menu." else "No. $why",
+        )
+    }
+
+    /** The menu look add-on, read from its zip: installable when aa-look passes the kit's checks. */
+    private fun recognizeMenuLook(k: KnownAddOn, s: Survey, zip: ByteArray, facts: MutableList<String>, problems: MutableList<String>): Recognition {
+        val kit = MenuLookKits.parse(zip)
+        problems += kit.problems
+        facts += "The file set of ${k.title} by ${k.by}: it makes the CarLife entry of the iDrive menu read \"Android Auto\"."
+        facts += kit.notes
+        if (kit.ok) {
+            facts += "The label is changed on the head unit by aa-look, which the app copies into the head unit's memory. The factory copy of every file it replaces is kept, and RESTORE puts it back."
+            facts += "Pictures are optional and your own; none is in the zip. The zip's own scripts are not run."
+            if (kit.known) facts += "aa-look is identical to the published ${kit.title}."
+        }
+        val ok = kit.ok && s.refused == null
+        val why = problems.firstOrNull() ?: "the app cannot read the menu look files."
+        return Recognition(
+            Match.KNOWN_ADDON, "${k.title} (add-on)", facts, problems,
+            installable = ok, addOn = k.id, appliesInApp = ok,
+            verdict = if (ok) "Installable now: ${kit.title}, the menu look (check first, then apply)." else "Cannot be installed: $why",
+            headline = if (ok) "Installable now" else "Cannot be installed",
+            answer = if (ok) "Yes. The app can apply this now: it changes the menu label (and your pictures), with a way back." else "No. $why",
         )
     }
 
