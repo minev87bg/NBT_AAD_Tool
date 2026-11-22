@@ -1,6 +1,8 @@
 package com.nbtaad.editor
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -151,7 +154,130 @@ fun PrepareScreen(vm: MainViewModel) {
                 }
             }
         }
+        Spacer(Modifier.height(28.dp))
+        CodingKeysSection(vm)
+
+        Spacer(Modifier.height(24.dp))
+        WriteCodingSection(vm)
         Spacer(Modifier.height(32.dp))
+    }
+
+    if (vm.confirmWriteCoding) {
+        val fixes = vm.codingFixes
+        AlertDialog(
+            onDismissRequest = { vm.confirmWriteCoding = false },
+            title = { Text("Write ${fixes.size} coding bit(s)?") },
+            text = {
+                Column {
+                    Text("To car ${vm.detect.vin}. Each bit is set to the value Sq00ky's project lists as AKTIV:")
+                    for ((bit, value) in fixes) {
+                        Text("• ${bit.token} → $value", fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+                    }
+                    Text(
+                        "The head unit will reset once this is written. The backup just read can revert this at any time.",
+                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 10.dp),
+                    )
+                }
+            },
+            confirmButton = { TextButton(onClick = { vm.applyAaCoding() }) { Text("WRITE") } },
+            dismissButton = { TextButton(onClick = { vm.confirmWriteCoding = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+@Composable
+private fun CodingKeysSection(vm: MainViewModel) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val ncdPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u ->
+        u?.let { vm.importCodingKey(it, ncd = true) }
+    }
+    val l3Picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u ->
+        u?.let { vm.importCodingKey(it, ncd = false) }
+    }
+    Text("Coding keys", fontSize = 15.sp, fontWeight = FontWeight.Medium)
+    Text(
+        "Writing a coding bit needs two small files recovered once from your own PSdZData, on a PC, with " +
+            "vandelayautollc/nbt-evo-toolkit's own nbtevo.keys tool (--kind ncd and --kind l3). They're kept on this " +
+            "phone encrypted, never sent anywhere.",
+        fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
+    )
+    StatusRow("ncd_key.json (signs the coding)", if (vm.hasNcdKey) "Imported" else null, found = vm.hasNcdKey)
+    Button(
+        onClick = { ncdPicker.launch(arrayOf("application/json")) },
+        modifier = Modifier.padding(top = 6.dp).fillMaxWidth(),
+    ) { Text("IMPORT ncd_key.json…") }
+    Spacer(Modifier.height(8.dp))
+    StatusRow("l3_key.json (unlocks writing)", if (vm.hasL3Key) "Imported" else null, found = vm.hasL3Key)
+    Button(
+        onClick = { l3Picker.launch(arrayOf("application/json")) },
+        modifier = Modifier.padding(top = 6.dp).fillMaxWidth(),
+    ) { Text("IMPORT l3_key.json…") }
+    if (vm.hasNcdKey || vm.hasL3Key) {
+        TextButton(onClick = { vm.forgetCodingKeys() }, modifier = Modifier.padding(top = 4.dp)) { Text("FORGET BOTH KEYS") }
+    }
+}
+
+@Composable
+private fun WriteCodingSection(vm: MainViewModel) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    Text("Write coding", fontSize = 15.sp, fontWeight = FontWeight.Medium)
+    Text(
+        "Reads a fresh backup, then — only for the bits CHECK CODINGS found not set, and only with both keys " +
+            "imported — re-signs and writes them. Never touches the Vehicle Order. The backup can always be written " +
+            "back afterward.",
+        fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
+    )
+    OutlinedButton(
+        onClick = { vm.readCodingBackup() },
+        enabled = vm.detect.zgw != null && !vm.codingBusy,
+        modifier = Modifier.fillMaxWidth(),
+    ) { Text(if (vm.codingBusy) "WORKING…" else "READ BACKUP") }
+    if (vm.codingBusy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
+
+    val backup = vm.codingBackup
+    if (backup != null) {
+        Text(
+            if (backup.ok) "Backup read: ${backup.vin}, ${backup.mem?.size ?: 0} coding bytes."
+            else "Backup read failed (${backup.steps.lastOrNull { !it.ok }?.detail ?: "see log"}).",
+            fontSize = 12.sp, color = if (backup.ok) Green else Red, modifier = Modifier.padding(top = 8.dp),
+        )
+    }
+
+    val fixes = vm.codingFixes
+    if (backup?.ok == true) {
+        if (fixes.isEmpty()) {
+            Text(
+                "Nothing to write — run CHECK CODINGS first, or everything it can confirm is already set.",
+                fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 8.dp),
+            )
+        } else {
+            Text("Would write:", fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 10.dp))
+            for ((bit, value) in fixes) {
+                Text("• ${bit.token} → $value", fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
+            }
+        }
+        Button(
+            onClick = { vm.confirmWriteCoding = true },
+            enabled = vm.canWriteCoding,
+            modifier = Modifier.padding(top = 10.dp).fillMaxWidth(),
+        ) { Text("WRITE CODING…") }
+        OutlinedButton(
+            onClick = { vm.revertCoding() },
+            enabled = vm.hasNcdKey && vm.hasL3Key && vm.codingBackup?.mem != null && !vm.codingBusy,
+            modifier = Modifier.padding(top = 8.dp).fillMaxWidth(),
+        ) { Text("REVERT TO BACKUP") }
+    }
+
+    vm.codingWriteLog?.let { log ->
+        Column(Modifier.padding(top = 12.dp)) {
+            Text("Last write:", fontSize = 12.sp, color = muted)
+            for (step in log) {
+                Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(7.dp).clip(CircleShape).background(if (step.ok) Green else Red))
+                    Text("${step.name}: ${step.detail}", fontSize = 12.sp, modifier = Modifier.padding(start = 8.dp))
+                }
+            }
+        }
     }
 }
 

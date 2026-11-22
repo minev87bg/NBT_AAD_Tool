@@ -220,4 +220,69 @@ object Hsfz {
             runCatching { s.close() }
         }
     }
+
+    /**
+     * One persistent HSFZ session to the head unit, for the handful of UDS exchanges a coding write
+     * needs **in order** — session control, SecurityAccess, the per-datagroup writes, the signature
+     * check, the CPS, then the reset ([capabilities/coding/03-write-flow.md] in
+     * vandelayautollc/nbt-evo-toolkit). Unlike [readVin]/[resetHeadUnit]/[readCodingDatagroup], which
+     * each open and close their own socket for one exchange, these have to share a session because
+     * SecurityAccess only unlocks the connection it was granted on. The caller must [close] it (it
+     * implements [AutoCloseable], so `use { }` works).
+     */
+    class CodingSession(zgwIp: String) : java.io.Closeable {
+        private val socket = Socket().apply {
+            tcpNoDelay = true
+            connect(InetSocketAddress(zgwIp, TCP_PORT), 3000)
+            soTimeout = 4000
+        }
+
+        sealed class Outcome {
+            /** A positive UDS response, SID echo included (e.g. `62 <did> <data...>`, `6E <did>`, `67 01 <seed>`). */
+            data class Positive(val data: ByteArray) : Outcome()
+            data class Negative(val nrc: Int) : Outcome()
+            object NoResponse : Outcome()
+        }
+
+        /** Sends one UDS request and returns its outcome, riding response-pending (`7F xx 78`) until [timeoutMs]. */
+        fun exchange(uds: ByteArray, timeoutMs: Long = 5000): Outcome {
+            val requestSid = uds[0].toInt() and 0xFF
+            socket.getOutputStream().write(diagFrame(TESTER, HEAD_UNIT, uds))
+            socket.getOutputStream().flush()
+            val deadline = System.currentTimeMillis() + timeoutMs
+            while (System.currentTimeMillis() < deadline) {
+                val f = readFrame(socket.getInputStream()) ?: return Outcome.NoResponse
+                if (f.type != CW_DIAG || f.payload.size < 3) continue
+                val resp = f.payload.copyOfRange(2, f.payload.size)
+                if (resp.isEmpty()) continue
+                val sid = resp[0].toInt() and 0xFF
+                when {
+                    sid == 0x7F -> {
+                        val nrc = if (resp.size >= 3) resp[2].toInt() and 0xFF else -1
+                        if (nrc == 0x78) continue // responsePending: the ECU is still working, keep waiting
+                        return Outcome.Negative(nrc)
+                    }
+                    sid == requestSid + 0x40 -> return Outcome.Positive(resp)
+                    else -> continue // the gateway's echo of our own request, or an unrelated frame
+                }
+            }
+            return Outcome.NoResponse
+        }
+
+        fun enterSession(sub: Int): Outcome = exchange(byteArrayOf(0x10, sub.toByte()))
+        fun securityAccessSeed(level: Int): Outcome = exchange(byteArrayOf(0x27, level.toByte()))
+        fun securityAccessSendKey(level: Int, key: ByteArray): Outcome =
+            exchange(byteArrayOf(0x27, level.toByte()) + key, timeoutMs = 6000)
+        fun readDataByIdentifier(did: Int): Outcome =
+            exchange(byteArrayOf(0x22, (did ushr 8).toByte(), did.toByte()))
+        fun writeDataByIdentifier(did: Int, data: ByteArray): Outcome =
+            exchange(byteArrayOf(0x2E, (did ushr 8).toByte(), did.toByte()) + data, timeoutMs = 6000)
+        fun routineControl(sub: Int, rid: Int, data: ByteArray = ByteArray(0)): Outcome =
+            exchange(byteArrayOf(0x31, sub.toByte(), (rid ushr 8).toByte(), rid.toByte()) + data)
+        fun ecuReset(sub: Int = 0x01): Outcome = exchange(byteArrayOf(0x11, sub.toByte()), timeoutMs = 8000)
+
+        override fun close() {
+            runCatching { socket.close() }
+        }
+    }
 }

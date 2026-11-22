@@ -914,6 +914,133 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // =====================================================================
+    // Writing coding: the owner's own recovered keys, a mandatory backup, then a signed write
+    // =====================================================================
+
+    private val codingKeyStore by lazy { com.nbtaad.editor.net.CodingKeyStore(ctx) }
+
+    var hasNcdKey by mutableStateOf(codingKeyStore.hasNcdKey())
+    var hasL3Key by mutableStateOf(codingKeyStore.hasL3Key())
+
+    /** The last backup read (datagroups 0x3000-0x3010): the mandatory first step before any write, and the revert target. */
+    var codingBackup by mutableStateOf<com.nbtaad.editor.net.BackupResult?>(null)
+    var codingBusy by mutableStateOf(false)
+    var codingWriteLog by mutableStateOf<List<com.nbtaad.editor.net.WriteStep>?>(null)
+    /** Set when WRITE CODING is tapped, to show the confirmation dialog; cleared on either answer. */
+    var confirmWriteCoding by mutableStateOf(false)
+
+    /** Imports a key file the person picked (ncd_key.json or l3_key.json, from the PC-side recovery tool). */
+    fun importCodingKey(uri: android.net.Uri, ncd: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val text = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    ?.toString(Charsets.UTF_8) ?: throw java.io.IOException("Could not open that file.")
+                if (ncd) codingKeyStore.importNcdKey(text) else codingKeyStore.importL3Key(text)
+                hasNcdKey = codingKeyStore.hasNcdKey()
+                hasL3Key = codingKeyStore.hasL3Key()
+                feedback = "Key imported."
+                feedbackError = false
+            } catch (e: Exception) {
+                AppLog.e("Coding", "Importing a coding key failed", e)
+                feedback = "Could not import that file: ${friendlyError(e)}"
+                feedbackError = true
+            }
+        }
+    }
+
+    /** "Forget these keys": the PC-side tool can always produce them again from the owner's own PSdZData. */
+    fun forgetCodingKeys() {
+        codingKeyStore.clearKeys()
+        hasNcdKey = false
+        hasL3Key = false
+        codingBackup = null
+        codingWriteLog = null
+    }
+
+    /** Reads a fresh backup of the car's current coding. Mandatory before a write; also the revert target afterward. */
+    fun readCodingBackup() {
+        val ip = detect.zgw ?: return
+        if (codingBusy) return
+        codingBusy = true
+        codingWriteLog = null
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                codingBackup = com.nbtaad.editor.net.CodingWrite.readBackup(ip)
+            } catch (e: Exception) {
+                AppLog.e("Coding", "Reading the coding backup failed", e)
+            } finally {
+                codingBusy = false
+            }
+        }
+    }
+
+    /** The AA coding bits CHECK CODINGS found not set, paired with the value they should be — what WRITE CODING would send. */
+    val codingFixes: List<Pair<com.nbtaad.editor.net.CodingBit, Int>>
+        get() = (codingResults ?: emptyList())
+            .filter { it.status == com.nbtaad.editor.net.CodingStatus.NOT_SET }
+            .mapNotNull { r -> r.bit.expectedOn?.let { r.bit to it } }
+
+    /** Whether everything WRITE CODING needs is in hand: both keys, a backup, a known VIN, and something to change. */
+    val canWriteCoding: Boolean
+        get() = hasNcdKey && hasL3Key && codingBackup?.mem != null && detect.vin != null && codingFixes.isNotEmpty() && !codingBusy
+
+    /** WRITE CODING, after the person has confirmed: re-signs the backup with the fixes applied and writes it through. */
+    fun applyAaCoding() {
+        confirmWriteCoding = false
+        val ip = detect.zgw ?: return
+        val backup = codingBackup?.mem ?: return
+        val vin = detect.vin ?: return
+        val ncdKey = codingKeyStore.readNcdKey() ?: return
+        val l3Key = codingKeyStore.readL3Key() ?: return
+        val fixes = codingFixes
+        if (fixes.isEmpty() || codingBusy) return
+        codingBusy = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val outcome = com.nbtaad.editor.net.CodingWrite.writeCoding(ip, backup, fixes, ncdKey, l3Key, vin)
+                codingWriteLog = outcome.steps
+                feedback = if (outcome.success) {
+                    "Wrote ${fixes.size} coding bit(s). The head unit is resetting - press CHECK AGAIN once it's back, then CHECK CODINGS to confirm."
+                } else {
+                    "The write stopped partway (see the log below) - nothing further was sent."
+                }
+                feedbackError = !outcome.success
+            } catch (e: Exception) {
+                AppLog.e("Coding", "Writing coding failed", e)
+                feedback = "Writing coding failed: ${friendlyError(e)}"
+                feedbackError = true
+            } finally {
+                codingBusy = false
+            }
+        }
+    }
+
+    /** REVERT TO BACKUP: writes the last backup back, unchanged - already correctly signed, since it came from the car. */
+    fun revertCoding() {
+        val ip = detect.zgw ?: return
+        val backup = codingBackup?.mem ?: return
+        val vin = detect.vin ?: return
+        val ncdKey = codingKeyStore.readNcdKey() ?: return
+        val l3Key = codingKeyStore.readL3Key() ?: return
+        if (codingBusy) return
+        codingBusy = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val outcome = com.nbtaad.editor.net.CodingWrite.revertCoding(ip, backup, ncdKey, l3Key, vin)
+                codingWriteLog = outcome.steps
+                feedback = if (outcome.success) "Reverted to the backup." else "The revert stopped partway (see the log below)."
+                feedbackError = !outcome.success
+            } catch (e: Exception) {
+                AppLog.e("Coding", "Reverting coding failed", e)
+                feedback = "Revert failed: ${friendlyError(e)}"
+                feedbackError = true
+            } finally {
+                codingBusy = false
+            }
+        }
+    }
+
     /** Why the last look for the car, started by an action that needed it, found no head unit (null: it found one). */
     @Volatile
     private var scanProblem: String? = null
