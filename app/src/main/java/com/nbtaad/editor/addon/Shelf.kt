@@ -47,6 +47,9 @@ object ShelfIndex {
     const val MAX_ITEMS = 8
     const val MAX_BYTES = 150L * 1024 * 1024
 
+    /** What a kept tile add-on is called on the shelf. */
+    const val TILE_KIND = "Android Auto tile (add-on)"
+
     /** Short words for what a set of files is. */
     fun kindText(kind: Kind): String = when (kind) {
         Kind.BUILD -> "full build"

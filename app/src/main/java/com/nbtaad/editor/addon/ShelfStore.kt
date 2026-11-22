@@ -39,7 +39,9 @@ class ShelfStore(ctx: Context) {
     @Synchronized
     fun save(file: SourceFile, origin: String, pageUrl: String?, sourceUrl: String? = null): ShelfItem? {
         val pkg = try { BuildPackage.of(listOf(file)) } catch (_: Exception) { return null }
-        if (!pkg.installable) return null
+        // a build of the project, or the tile add-on (which the tile page installs)
+        val tile = if (pkg.installable) null else try { AddOns.tileKitOf(file.name, file.bytes) } catch (_: Exception) { null }
+        if (!pkg.installable && tile == null) return null
         val id = UpdateLogic.sha256Hex(file.bytes).take(16)
         dir.mkdirs()
         val target = bytesOf(id)
@@ -50,13 +52,15 @@ class ShelfStore(ctx: Context) {
             tmp.renameTo(target)
         }
         val item = ShelfItem(
-            id, file.name, System.currentTimeMillis(), file.bytes.size.toLong(), pkg.version, ShelfIndex.kindText(pkg.kind),
+            id, file.name, System.currentTimeMillis(), file.bytes.size.toLong(),
+            if (tile != null) tile.version?.let { "build $it" } else pkg.version,
+            if (tile != null) ShelfIndex.TILE_KIND else ShelfIndex.kindText(pkg.kind),
             origin, pageUrl, sourceUrl = sourceUrl,
         )
         val (kept, dropped) = ShelfIndex.place(list(), item)
         for (d in dropped) bytesOf(d.id).delete()
         write(kept)
-        AppLog.i("Shelf", "Kept ${file.name} (${file.bytes.size} bytes, ${pkg.version ?: "no version"}); ${kept.size} on the shelf" +
+        AppLog.i("Shelf", "Kept ${file.name} (${file.bytes.size} bytes, ${tile?.title ?: pkg.version ?: "no version"}); ${kept.size} on the shelf" +
             if (dropped.isNotEmpty()) ", ${dropped.size} older one(s) made room" else "")
         return item
     }

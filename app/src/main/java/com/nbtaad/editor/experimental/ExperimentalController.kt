@@ -478,7 +478,7 @@ class ExperimentalController(
                 }
                 insideMessage = "Looking inside…"
                 val survey = ZipSurvey.survey(f.name, f.bytes)
-                val rec = AddOns.recognize(survey)
+                val rec = AddOns.recognize(survey, f.bytes)
                 AppLog.i(
                     "AddOn",
                     "Looked inside ${link.name} of #${t.number}: ${survey.entries.size} files, ${rec.match}" +

@@ -103,7 +103,8 @@ internal fun InsideDialog(exp: ExperimentalController, ins: ExperimentalControll
                 }
                 if (rec.installable) {
                     Text(
-                        "Unofficial file: the version on the head unit stays as a way back.",
+                        if (b != null) "Unofficial file: the version on the head unit stays as a way back."
+                        else "An add-on: it opens its own page with a test from the head unit's memory first, then install and remove.",
                         fontSize = 11.sp,
                         color = muted,
                         modifier = Modifier.padding(top = 8.dp),
@@ -228,9 +229,15 @@ private fun InsideDetails(ins: ExperimentalController.Inside, onClose: () -> Uni
                 Text(rec.title, fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 4.dp))
                 if (rec.installable) {
                     Text(
-                        "Not an official release: nobody has checked these files, and \"installable\" does not promise that it works. " +
-                            "TRY TO INSTALL only hands them to the Install page, where you confirm again. The version now on the " +
-                            "head unit is kept there as a way back.",
+                        if (rec.build != null) {
+                            "Not an official release: nobody has checked these files, and \"installable\" does not promise that it works. " +
+                                "TRY TO INSTALL only hands them to the Install page, where you confirm again. The version now on the " +
+                                "head unit is kept there as a way back."
+                        } else {
+                            "Not an official release: \"installable\" does not promise that it works. TRY TO INSTALL opens the " +
+                                "tile page: the tile can be tested from the head unit's memory first (nothing is installed), and " +
+                                "REMOVE puts the original start file back."
+                        },
                         fontSize = 12.sp,
                         modifier = Modifier.padding(top = 6.dp),
                     )

@@ -76,8 +76,9 @@ object AddOns {
             id = "nbt-aa-tile",
             title = "nbt-aa-tile",
             by = "deathwalker80",
-            files = listOf("aa-tile", "aa-tile-launcher.sh", "install-boot.sh", "remove-boot.sh", "hook.txt"),
+            files = listOf("aa-tile", "aa-tile-launcher.sh", "hook.txt"),
             needs = "nbt-aad 1.8.66 or newer, and the CarLife widget file on the head unit",
+            recipe = true,
         ),
     )
 
@@ -112,7 +113,18 @@ object AddOns {
         )
     }
 
-    fun recognize(s: Survey): Recognition {
+    /**
+     * What the zip is, when it is the tile add-on and the app can read its files: the kit, to be installed from the
+     * tile page. Null for anything else (a build of the project goes to the installer).
+     */
+    fun tileKitOf(name: String, zip: ByteArray): TileKit? {
+        val rec = recognize(ZipSurvey.survey(name, zip), zip)
+        if (rec.match != Match.KNOWN_ADDON || rec.addOn != "nbt-aa-tile") return null
+        return TileKits.parse(zip).takeIf { it.ok }
+    }
+
+    /** [zip] is the file's bytes: with them an add-on that has a recipe is read for real, without them it is only named. */
+    fun recognize(s: Survey, zip: ByteArray? = null): Recognition {
         val facts = ArrayList<String>()
         val problems = ArrayList<String>()
         s.refused?.let { problems += it }
@@ -158,16 +170,20 @@ object AddOns {
         for (k in KNOWN) {
             val have = k.files.all { f -> s.find(f) != null }
             val program = s.find(k.files.first())?.kind == EntryKind.PROGRAM
+            if (have && program && k.recipe && k.id == "nbt-aa-tile" && zip != null) {
+                return recognizeTile(k, s, zip, facts, problems)
+            }
             if (have && program) {
+                // only named: the zip's bytes were not given (or the add-on has no recipe), so nothing is judged or applied
                 facts += "The file set of ${k.title} by ${k.by}."
                 facts += "It needs ${k.needs}."
-                if (!k.recipe) facts += "The app cannot apply this kind of add-on yet. It can show what is inside and ask the AI to read it."
+                facts += "The app cannot apply this kind of add-on yet. It can show what is inside and ask the AI to read it."
                 return Recognition(
                     Match.KNOWN_ADDON, "${k.title} (add-on)", facts, problems,
-                    installable = false, addOn = k.id, appliesInApp = k.recipe,
-                    verdict = if (k.recipe) "Recognized as ${k.title}: the app can apply it." else "Recognized as ${k.title}, but the app cannot install add-ons yet.",
-                    headline = if (k.recipe) "Add-on the app can apply" else "Not installable yet",
-                    answer = if (k.recipe) "Yes. The app knows this add-on (${k.title})." else "No. This is ${k.title}, an add-on the app cannot install yet.",
+                    installable = false, addOn = k.id, appliesInApp = false,
+                    verdict = "Recognized as ${k.title}, but the app cannot install add-ons yet.",
+                    headline = "Not installable yet",
+                    answer = "No. This is ${k.title}, an add-on the app cannot install yet.",
                 )
             }
         }
@@ -183,6 +199,28 @@ object AddOns {
             verdict = if (s.refused != null) "The app cannot read this file." else "Not an NBT-AAD build: the app cannot install it.",
             headline = if (s.refused != null) "Cannot be read" else "Not an NBT-AAD build",
             answer = if (s.refused != null) "No. ${s.refused}" else "No. None of Sq00ky's build files are in it, and it is not an add-on the app knows.",
+        )
+    }
+
+    /** The tile add-on, read from its zip: installable when the three files the app uses pass the kit's checks. */
+    private fun recognizeTile(k: KnownAddOn, s: Survey, zip: ByteArray, facts: MutableList<String>, problems: MutableList<String>): Recognition {
+        val kit = TileKits.parse(zip)
+        problems += kit.problems
+        facts += "The file set of ${k.title} by ${k.by}: an Android Auto tile for the iDrive main menu."
+        facts += "It needs ${k.needs}."
+        facts += kit.notes
+        if (kit.ok) {
+            facts += "The app uses three of its files (aa-tile, aa-tile-launcher.sh, hook.txt) and does the install steps itself; the zip's own scripts are not run."
+            if (kit.known) facts += "All three files are identical to the published ${kit.title}."
+        }
+        val ok = kit.ok && s.refused == null
+        val why = problems.firstOrNull() ?: "the app cannot read the tile files."
+        return Recognition(
+            Match.KNOWN_ADDON, "${k.title} (add-on)", facts, problems,
+            installable = ok, addOn = k.id, appliesInApp = ok,
+            verdict = if (ok) "Installable now: ${kit.title}, the Android Auto tile (test first, then install)." else "Cannot be installed: $why",
+            headline = if (ok) "Installable now" else "Cannot be installed",
+            answer = if (ok) "Yes. The app can install this now: it adds the Android Auto tile to the iDrive menu." else "No. $why",
         )
     }
 

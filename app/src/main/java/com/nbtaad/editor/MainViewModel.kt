@@ -20,7 +20,10 @@ import com.nbtaad.editor.env.CustomOption
 import com.nbtaad.editor.env.EnvCheck
 import com.nbtaad.editor.env.EnvDoc
 import com.nbtaad.editor.env.Opt
+import com.nbtaad.editor.addon.AddOns
 import com.nbtaad.editor.install.InstallController
+import com.nbtaad.editor.install.SourceFile
+import com.nbtaad.editor.install.TileController
 import com.nbtaad.editor.experimental.ExperimentalController
 import com.nbtaad.editor.experimental.Topic
 import com.nbtaad.editor.log.AppLog
@@ -54,7 +57,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.coroutines.coroutineContext
 
-enum class Screen { DETECT, HUB, OPTIONS, INSTALL, EXPERIMENTAL, CONTRIBUTE, WIZARD }
+enum class Screen { DETECT, HUB, OPTIONS, INSTALL, EXPERIMENTAL, CONTRIBUTE, WIZARD, TILE }
 enum class UpdatePhase { IDLE, CHECKING, CURRENT, AVAILABLE, DOWNLOADING, FAILED }
 enum class SaveStatus { RUNNING, OK, FAIL }
 enum class LineKind { INFO, OK, ERROR }
@@ -112,6 +115,35 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         catalog = { catalog },
     )
 
+    /** The page of the Android Auto tile add-on: test, install and remove it. */
+    val tile = TileController(
+        ctx, viewModelScope, host = { detect.hu }, rescan = { rescanForHost() }, problem = { scanProblem },
+        daemonVersion = { inst.unit?.installedVersion },
+    )
+
+    /** The page the tile page was opened from, for its back button. */
+    private var tileFrom = Screen.EXPERIMENTAL
+
+    /**
+     * Takes [file] to the tile page when it is the tile add-on (and the app can read its files); false for anything else.
+     */
+    private fun openTileWith(file: SourceFile, origin: String, pageUrl: String?, shelfId: String?): Boolean {
+        val kit = AddOns.tileKitOf(file.name, file.bytes) ?: return false
+        tile.show(TileController.Shown(kit, file.name, origin, pageUrl, shelfId))
+        if (screen != Screen.TILE) tileFrom = screen
+        inst.open()
+        screen = Screen.TILE
+        return true
+    }
+
+    fun closeTile() {
+        screen = if (tileFrom == Screen.TILE) Screen.HUB else tileFrom
+    }
+
+    init {
+        inst.onTile = { file, item -> openTileWith(file, item.origin.ifBlank { "kept on this phone" }, item.pageUrl, item.id) }
+    }
+
     /** The Experimental page: issues and pull requests of the project, and the files people share in them. */
     val exp = ExperimentalController(
         ctx, viewModelScope,
@@ -122,9 +154,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val origin = "$kind #${topic.number}, shared by ${link.by.ifBlank { "someone" }}"
             // kept on the phone first: it is still there when no car is connected yet, or the app is closed
             val kept = inst.keepForLater(file, origin, topic.url, link.url)
-            inst.open()
-            inst.useDownloaded(file, origin, topic.url, shelfId = kept?.id)
-            screen = Screen.INSTALL
+            // the tile add-on has a page of its own; everything else goes to the installer
+            if (!openTileWith(file, origin, topic.url, kept?.id)) {
+                inst.open()
+                inst.useDownloaded(file, origin, topic.url, shelfId = kept?.id)
+                screen = Screen.INSTALL
+            }
         },
         onKeep = { file, topic, link ->
             val kind = if (topic.isPr) "pull request" else "issue"

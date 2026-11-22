@@ -67,6 +67,9 @@ class InstallController(
     /** The list of settings (from the README), which says what the values in nbt-aad.env mean. */
     private val catalog: () -> List<Opt> = { emptyList() },
 ) {
+    /** Set by the app: takes a kept file that is the tile add-on to its own page; true when it did. */
+    var onTile: ((SourceFile, ShelfItem) -> Boolean)? = null
+
     // the files kept on the phone for later (see ShelfStore)
     private val shelfStore = ShelfStore(ctx)
     var shelf by mutableStateOf<List<ShelfItem>>(emptyList()); private set
@@ -303,6 +306,8 @@ class InstallController(
             if (f == null) {
                 prepError = true
                 prepMessage = "${item.name} is not on the phone any more."
+            } else if (onTile?.invoke(f, item) == true) {
+                // the tile add-on has its own page
             } else {
                 useDownloaded(f, item.origin.ifBlank { "kept on this phone" }, item.pageUrl, shelfId = item.id)
             }

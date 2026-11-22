@@ -189,7 +189,7 @@ object RemoteScripts {
         done
     """.trimIndent()
 
-    private val REMOUNT_PART = """
+    internal val REMOUNT_PART = """
         if mount -o remount rw /net/hu-omap/fs/sda0 >/dev/null 2>&1; then echo "REMOUNT ok"
         elif mount -o remount rw /fs/sda0 >/dev/null 2>&1; then echo "REMOUNT ok"
         else echo "REMOUNT failed"
