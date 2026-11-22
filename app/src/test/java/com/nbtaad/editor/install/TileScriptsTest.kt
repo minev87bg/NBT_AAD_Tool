@@ -28,7 +28,8 @@ class TileScriptsTest {
         assumeTrue(File("/bin/sh").canExecute())
         RemoteScripts.pathFix = ""
         root = File.createTempFile("nbt-aad-tile", "").also { it.delete() }
-        for (d in listOf("opt/hmi", "opt/conn/bin", "dev/shmem", "stage")) File(root, d).mkdirs()
+        for (d in listOf("opt/hmi/ID5/data/ro/common/widget", "opt/conn/bin", "dev/shmem", "stage")) File(root, d).mkdirs()
+        File(root, "opt/hmi/ID5/data/ro/common/widget/CarLife.pbw").writeText("widget")
         File(root, "opt/conn/bin/start_webserver.sh").writeText(original)
         File(root, "opt/conn/bin/start_webserver.sh").setExecutable(true)
         File(root, "stage/aa-tile").writeBytes(program)
@@ -55,6 +56,29 @@ class TileScriptsTest {
             .redirectOutput(ProcessBuilder.Redirect.to(File("/dev/null"))).redirectError(ProcessBuilder.Redirect.to(File("/dev/null"))).start()
         p.waitFor()
         return TileScripts.parse(File(root, "stage/out").takeIf { it.exists() }?.readText() ?: "NOREPORT")
+    }
+
+    @Test
+    fun withoutTheCarLifeEntryNothingIsStartedOrInstalled() {
+        File(root, "opt/hmi/ID5/data/ro/common/widget/CarLife.pbw").delete()
+        val look = run(TileScripts.Action.STATUS)
+        assertTrue(look.success)
+        assertTrue(look.carlifeMissing)
+        for (a in listOf(TileScripts.Action.TEST, TileScripts.Action.INSTALL)) {
+            val r = run(a)
+            assertFalse(r.success)
+            assertEquals(TileScripts.NO_CARLIFE, r.error)
+        }
+        assertEquals(original, web.readText())
+        assertFalse(File(root, "opt/aa-tile").exists())
+        assertFalse(File(root, "dev/shmem/aa-tile").exists())
+    }
+
+    @Test
+    fun withTheCarLifeEntryTheHeadUnitSaysSo() {
+        val r = run(TileScripts.Action.STATUS)
+        assertEquals("yes", r.state["carlife"])
+        assertFalse(r.carlifeMissing)
     }
 
     @Test
@@ -163,7 +187,7 @@ class TileScriptsTest {
 
     @Test
     fun aShellThatIsNotHuOmapsChangesNothing() {
-        File(root, "opt/hmi").delete()
+        File(root, "opt/hmi").deleteRecursively()
         val r = run(TileScripts.Action.INSTALL)
         assertNotNull(r.error)
         assertEquals(original, web.readText())

@@ -13,9 +13,12 @@ import java.net.URL
 /** Reaches GitHub for the project's releases, and reads the files the person picks on the phone. */
 object ReleasesApi {
     /** The project's releases, newest first. Needs internet. */
-    fun list(ctx: Context): List<ReleaseInfo> {
+    fun list(ctx: Context): List<ReleaseInfo> = listFrom(ctx, ReleaseLogic.LIST_URL)
+
+    /** The releases a GitHub project lists at [listUrl] (api.github.com/repos/OWNER/REPO/releases), newest first. Needs internet. */
+    fun listFrom(ctx: Context, listUrl: String): List<ReleaseInfo> {
         val text = Internet.run(ctx) { open ->
-            val c = open(URL(ReleaseLogic.LIST_URL))
+            val c = open(URL(listUrl))
             try {
                 c.connectTimeout = 8000
                 c.readTimeout = 20000
@@ -24,6 +27,7 @@ object ReleasesApi {
                 when (val code = c.responseCode) {
                     200 -> c.inputStream.use { it.readBytes() }.toString(Charsets.UTF_8)
                     403, 429 -> throw IOException("GitHub is limiting requests right now ($code), try again later.")
+                    404 -> throw IOException("GitHub does not know that project any more (404)")
                     else -> throw IOException("GitHub answered $code")
                 }
             } finally {

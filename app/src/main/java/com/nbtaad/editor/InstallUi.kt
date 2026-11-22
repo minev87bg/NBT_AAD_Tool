@@ -101,10 +101,10 @@ fun HubScreen(vm: MainViewModel) {
             icon = HubIcon.ADDON,
             tint = Color(0xFF8E6BC9),
             title = "Add-ons",
-            subtitle = "Android Auto tile · menu look",
-            info = "Extras by deathwalker80 that come as zip files: the Android Auto tile in the iDrive main menu, and the " +
-                "menu look that makes the CarLife entry read \"Android Auto\". Pick a zip from this phone, or take one " +
-                "from the community pages (LOOK INSIDE, then TRY TO INSTALL). Each has a test or check, and a way back.",
+            subtitle = "Approved extras, followed on GitHub",
+            info = "Extras for NBT-AAD that the app has approved, such as the Android Auto tile and the menu look. Each one is " +
+                "followed on its GitHub page: the app takes its newest release and its own page does the install steps, with a " +
+                "test or check first and a way back. The list grows as add-ons are approved.",
         ) { vm.chooseAddOns() }
         Spacer(Modifier.height(12.dp))
         HeroTile(

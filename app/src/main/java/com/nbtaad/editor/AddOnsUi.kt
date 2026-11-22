@@ -3,6 +3,7 @@ package com.nbtaad.editor
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,63 +21,79 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nbtaad.editor.addon.AddOnCatalog
+import com.nbtaad.editor.addon.CatalogEntry
 import com.nbtaad.editor.addon.ShelfIndex
 
 /**
- * The Add-ons page: the Android Auto tile and the menu look (deathwalker80's extras). Each comes as a zip: pick it from
- * the phone, or choose one that was kept on the phone. The zip is kept, so it is still there when no car is connected.
+ * The Add-ons page: a list of the add-ons the app has approved. Each card says who made it and what it does, shows the
+ * newest release on its GitHub page, and its button gets that release (or opens the copy kept on the phone).
  */
 @Composable
 fun AddOnsScreen(vm: MainViewModel) {
     BackHandler { vm.backToHub() }
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val a = vm.addOns
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         vm.pickAddOn(uris)
     }
-    val kept = vm.inst.shelf.filter { it.summary == ShelfIndex.TILE_KIND || it.summary == ShelfIndex.MENU_LOOK_KIND }
+    val strangers = vm.inst.shelf.filter { it.summary == ShelfIndex.TILE_KIND || it.summary == ShelfIndex.MENU_LOOK_KIND }
+    val followed = AddOnCatalog.PROJECTS.joinToString(", ") { it.name }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         Spacer(Modifier.height(52.dp))
         Text("Add-ons", fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
         Text(
-            "Extras by deathwalker80 that come as zip files. The app reads the zip, checks it and does the steps itself.",
+            "Extras for NBT-AAD that the app has approved. Each one is followed on its GitHub page: the app takes its newest " +
+                "release, and its page does the install steps.",
             fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 4.dp),
         )
+        Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                when {
+                    a.loading -> "Checking GitHub…"
+                    a.loadMessage.isNotEmpty() -> a.loadMessage
+                    a.checkedAt != 0L -> "Followed on GitHub: $followed"
+                    else -> ""
+                },
+                fontSize = 11.sp, color = if (a.loadMessage.isNotEmpty() && !a.loading) Red else muted, modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = { a.refresh() }, enabled = !a.loading) { Text("CHECK AGAIN", fontSize = 12.sp) }
+        }
+        if (a.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
 
-        OutlinedButton(onClick = { picker.launch(arrayOf("*/*")) }, enabled = !vm.addOnBusy, modifier = Modifier.padding(top = 16.dp).fillMaxWidth()) {
+        for (entry in AddOnCatalog.ENTRIES) AddOnCard(vm, entry)
+
+        Text("Have the zip already?", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 22.dp))
+        Text(
+            "A zip of an approved add-on that is on this phone: the app recognizes which one it is and keeps a copy.",
+            fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp),
+        )
+        OutlinedButton(onClick = { picker.launch(arrayOf("*/*")) }, enabled = !vm.addOnBusy, modifier = Modifier.padding(top = 8.dp).fillMaxWidth()) {
             Text("A ZIP FROM THIS PHONE…")
         }
-        Text(
-            "Pick nbt-aa-tile-5.zip or aa-menu-look-2.zip. The app recognizes which one it is and keeps a copy on the phone, " +
-                "so it can be used later when the car is connected.",
-            fontSize = 11.sp, color = muted, modifier = Modifier.padding(top = 4.dp),
-        )
         if (vm.addOnBusy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
         if (vm.addOnMessage.isNotEmpty()) {
             Text(vm.addOnMessage, fontSize = 12.sp, color = if (vm.addOnBusy) muted else Red, modifier = Modifier.padding(top = 8.dp))
         }
 
-        AddOnCard(
-            title = "Android Auto tile",
-            what = "A tile in the iDrive main menu. Pressing it brings Android Auto back. Test it for 2 minutes first, then install it at boot; one tap removes it.",
-            loaded = vm.tile.shown?.kit?.title,
-            onOpen = { vm.openTilePage() },
-        )
-        AddOnCard(
-            title = "Menu look",
-            what = "Makes the CarLife entry of the iDrive menu read \"Android Auto\" in every language, with your own pictures if you like. Check first; the originals are kept and can be restored.",
-            loaded = vm.menuLook.shown?.kit?.title,
-            onOpen = { vm.openMenuLookPage() },
-        )
-
-        if (kept.isNotEmpty()) {
+        if (strangers.isNotEmpty()) {
             Text("Saved on this phone", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 20.dp))
-            for (item in kept) {
+            for (item in strangers) {
                 Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(item.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
@@ -86,31 +103,63 @@ fun AddOnsScreen(vm: MainViewModel) {
                 }
             }
         }
-
-        Text(
-            "Where to get the zips: Browse community → the page that shares them → LOOK INSIDE → TRY TO INSTALL. " +
-                "Or download them to the phone and pick them above.",
-            fontSize = 11.sp, color = muted, modifier = Modifier.padding(top = 20.dp, bottom = 32.dp),
-        )
+        Spacer(Modifier.height(32.dp))
     }
 }
 
 @Composable
-private fun AddOnCard(title: String, what: String, loaded: String?, onOpen: () -> Unit) {
+private fun AddOnCard(vm: MainViewModel, entry: CatalogEntry) {
+    val a = vm.addOns
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val uri = LocalUriHandler.current
+    val ctx = LocalContext.current
+    val found = a.latest(entry)
+    val plan = a.plan(entry)
+    val busy = a.busyId == entry.id
+    val message = a.messages[entry.id]
+    var notes by remember { mutableStateOf(false) }
+    // a picture of the add-on, when the app has one (a drawable called like the entry's screenshot name)
+    val shot = remember(entry.screenshot) { entry.screenshot?.let { ctx.resources.getIdentifier(it, "drawable", ctx.packageName) } ?: 0 }
+
     Column(
         Modifier.padding(top = 14.dp).fillMaxWidth()
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
             .padding(12.dp),
     ) {
-        Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-        Text(what, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
-        Text(
-            if (loaded != null) "✓ $loaded is loaded." else "No file loaded yet.",
-            fontSize = 12.sp, color = if (loaded != null) Green else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 6.dp),
-        )
-        OutlinedButton(onClick = onOpen, enabled = loaded != null, modifier = Modifier.padding(top = 6.dp)) {
-            Text("OPEN THE PAGE", fontSize = 12.sp)
+        if (shot != 0) {
+            Image(
+                painterResource(shot), contentDescription = entry.title, contentScale = ContentScale.FillWidth,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(10.dp)),
+            )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(entry.title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Text("by ${entry.author}", fontSize = 12.sp, color = muted)
+            }
+            TextButton(onClick = { openLink(uri, entry.project.pageUrl) }) { Text("GITHUB", fontSize = 12.sp) }
+        }
+        Text(entry.summary, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+        Text(plan.status, fontSize = 12.sp, color = if (plan.doing == AddOnCatalog.Do.UPDATE) Amber else muted, modifier = Modifier.padding(top = 6.dp))
+        if (found != null) {
+            Text(
+                "Release ${found.release.tag} · ${found.release.published.take(10)}" + if (found.release.prerelease) " · pre-release" else "",
+                fontSize = 11.sp, color = muted,
+            )
+        }
+        OutlinedButton(
+            onClick = { a.act(entry) },
+            enabled = a.busyId == null && plan.doing in setOf(AddOnCatalog.Do.OPEN_SAVED, AddOnCatalog.Do.GET, AddOnCatalog.Do.UPDATE),
+            modifier = Modifier.padding(top = 8.dp).fillMaxWidth(),
+        ) { Text(if (busy) "GETTING…" else plan.label, fontSize = 13.sp) }
+        if (busy) {
+            Text(a.step, fontSize = 11.sp, color = muted, modifier = Modifier.padding(top = 4.dp))
+            LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 4.dp))
+        }
+        if (message != null) Text(message, fontSize = 12.sp, color = Red, modifier = Modifier.padding(top = 6.dp))
+        if (found != null && found.release.notes.isNotBlank()) {
+            TextButton(onClick = { notes = !notes }) { Text(if (notes) "HIDE WHAT'S NEW" else "WHAT'S NEW IN ${found.release.tag}", fontSize = 12.sp) }
+            if (notes) Text(AddOnCatalog.notesDigest(found.release.notes), fontSize = 12.sp, color = muted)
         }
     }
 }

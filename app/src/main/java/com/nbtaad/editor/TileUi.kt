@@ -102,6 +102,13 @@ fun TileScreen(vm: MainViewModel) {
                     r.last?.let { "Launcher: $it" },
                 )
                 for (f in facts) Text("• $f", fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
+                if (r.carlifeMissing) {
+                    Text(
+                        "This head unit software has no CarLife entry (common/widget/CarLife.pbw), so the tile cannot appear here. " +
+                            "The author found this on a BMW F30 with NBTevo_L17193I.",
+                        fontSize = 12.sp, color = Red, modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
             }
             OutlinedButton(onClick = { tile.look() }, enabled = canAct, modifier = Modifier.padding(top = 8.dp)) {
                 Text(if (tile.busy == TileScripts.Action.STATUS) "LOOKING…" else "LOOK AT THE HEAD UNIT", fontSize = 12.sp)
@@ -133,7 +140,7 @@ fun TileScreen(vm: MainViewModel) {
                 "Start Android Auto on the phone first, then watch the iDrive main menu.",
             fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp),
         )
-        OutlinedButton(onClick = { tile.test() }, enabled = canAct, modifier = Modifier.padding(top = 8.dp).fillMaxWidth()) {
+        OutlinedButton(onClick = { tile.test() }, enabled = canAct && !tile.carlifeMissing, modifier = Modifier.padding(top = 8.dp).fillMaxWidth()) {
             Text(if (tile.busy == TileScripts.Action.TEST) "TEST RUNNING…" else "TEST FOR 2 MINUTES")
         }
         if (tile.busy == TileScripts.Action.TEST) TestRunning(tile)
@@ -147,7 +154,7 @@ fun TileScreen(vm: MainViewModel) {
                 Text(m.label, fontSize = 13.sp)
             }
         }
-        OutlinedButton(onClick = { tile.askToInstall() }, enabled = canAct && !tile.daemonTooOld, modifier = Modifier.padding(top = 4.dp).fillMaxWidth()) {
+        OutlinedButton(onClick = { tile.askToInstall() }, enabled = canAct && !tile.daemonTooOld && !tile.carlifeMissing, modifier = Modifier.padding(top = 4.dp).fillMaxWidth()) {
             Text(if (tile.busy == TileScripts.Action.INSTALL) "INSTALLING…" else "INSTALL AT BOOT…")
         }
 

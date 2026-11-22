@@ -151,6 +151,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         return true
     }
 
+    /** The Add-ons page: the approved add-ons, followed on GitHub. */
+    val addOns = com.nbtaad.editor.install.AddOnsController(ctx, viewModelScope, inst) { file, origin, pageUrl, shelfId ->
+        openTileWith(file, origin, pageUrl, shelfId)
+    }
+
     /** What the Add-ons page says about the zip that was picked (empty when all is well). */
     var addOnMessage by mutableStateOf("")
     var addOnBusy by mutableStateOf(false); private set
@@ -190,25 +195,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** The tile page, for a file that is already loaded. */
-    fun openTilePage() {
-        if (tile.shown == null) return
-        tileFrom = Screen.ADDONS
-        inst.open()
-        screen = Screen.TILE
-    }
-
-    /** The menu look page, for a file that is already loaded. */
-    fun openMenuLookPage() {
-        if (menuLook.shown == null) return
-        tileFrom = Screen.ADDONS
-        inst.open()
-        screen = Screen.MENULOOK
-    }
-
     fun chooseAddOns() {
         inst.open()
         addOnMessage = ""
+        addOns.visit()
         screen = Screen.ADDONS
     }
 

@@ -164,6 +164,9 @@ class TileController(
         }
     }
 
+    /** The last look found no CarLife entry on the head unit: the tile cannot work there. */
+    val carlifeMissing: Boolean get() = report?.carlifeMissing == true
+
     fun statusHeadline(r: TileScripts.Report): String = when {
         r.casella -> "The older casella-aa tile is installed"
         r.hooked && r.programHere -> "Installed" + (r.mode?.let { " ($it)" } ?: "")

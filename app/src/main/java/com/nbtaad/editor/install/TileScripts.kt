@@ -100,6 +100,7 @@ object TileScripts {
             B=¤D/start_webserver.sh.original
             N=¤D/start_webserver.sh.new
             V=¤R/var/opt/aa-tile
+            PBW=¤R/opt/hmi/ID5/data/ro/common/widget/CarLife.pbw
             SH=¤R/dev/shmem
             MODE=${mode.word}
             PS=$programSize
@@ -108,8 +109,12 @@ object TileScripts {
             SEC=$TEST_SECONDS
             echo "JOB ${action.word}"
         """
-        return sh(head + "\n" + COMMON + "\n" + body(action) + "\nexit 0")
+        return sh(head + "\n" + COMMON + "\n" + body(action).replace("¤NO_CARLIFE_TEXT", NO_CARLIFE) + "\nexit 0")
     }
+
+    /** The author's check (nbt-aa-tile, 13 November 2026): the tile only switches on the CarLife entry the HMI already has. */
+    const val NO_CARLIFE =
+        "This head unit software has no CarLife entry (common/widget/CarLife.pbw): the tile cannot work here. Nothing was started or changed."
 
     private val COMMON = """
         fail() { echo "ERR ¤1"; echo "END 1"; exit 1; }
@@ -123,6 +128,7 @@ object TileScripts {
           if [ -f ¤D/aa-tile ]; then echo "ST program ¤(size ¤D/aa-tile)"; else echo "ST program none"; fi
           if [ -f ¤D/aa-tile-launcher.sh ]; then echo "ST launcher yes"; else echo "ST launcher no"; fi
           if [ -f ¤B ]; then echo "ST original yes"; else echo "ST original no"; fi
+          if [ -f ¤PBW ]; then echo "ST carlife yes"; else echo "ST carlife no"; fi
           if [ -f ¤SH/nbt-aad-state ]; then echo "ST aad running"; else echo "ST aad stopped"; fi
           if running; then echo "ST tile running"; else echo "ST tile stopped"; fi
           for f in DISABLED CRASHED boots mode last; do
@@ -148,6 +154,7 @@ object TileScripts {
 
     /** The author's test-ram.sh: the program runs from RAM for a fixed time, then ends by itself and hides the tile. */
     private val TEST = """
+        [ -f ¤PBW ] || fail "¤NO_CARLIFE_TEXT"
         [ -f ¤S/aa-tile ] || fail "aa-tile did not arrive on the head unit."
         [ "¤(size ¤S/aa-tile)" = "¤PS" ] || fail "aa-tile arrived with the wrong size (¤(size ¤S/aa-tile) bytes, not ¤PS). It was not started."
         P=¤SH/aa-tile
@@ -169,6 +176,7 @@ object TileScripts {
 
     /** The author's install-boot.sh. */
     private val INSTALL = """
+        [ -f ¤PBW ] || fail "¤NO_CARLIFE_TEXT"
         [ -f ¤W ] || fail "¤W is not on this head unit: this is different software, so nothing was changed."
         if grep 'casella-aa hook' ¤W >/dev/null 2>&1; then
           fail "The older casella-aa build is installed. Remove it first with its own remove script, restart, then try again."
@@ -270,6 +278,9 @@ object TileScripts {
         val mode: String? get() = state["mode"]?.takeIf { it.isNotBlank() }
         val last: String? get() = state["last"]?.takeIf { it.isNotBlank() }
         val casella: Boolean get() = state["casella"] == "yes"
+
+        /** The head unit software has no CarLife entry, so the tile cannot appear (null: not known). */
+        val carlifeMissing: Boolean get() = state["carlife"] == "no"
     }
 
     fun parse(text: String): Report {
