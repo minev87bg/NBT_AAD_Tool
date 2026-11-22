@@ -434,9 +434,12 @@ class TileScriptsTest {
     fun aTestThatFindsAnEarlierRunsProgramStillGoingStopsItFirstWhenItCanSeeIt() {
         // pidin is the head unit's: here a stand-in lists a process whose name has shmem/aa-tile in it, and kill is the shell's own
         val bin = File(root, "bin").also { it.mkdirs() }
-        val sleeper = ProcessBuilder("/bin/sh", "-c", "sleep 30").start()
+        val pidFile = File(root, "sleeper.pid")
+        val sleeper = ProcessBuilder("/bin/sh", "-c", "echo \$\$ > ${pidFile.path}; exec sleep 30").start()
         try {
-            val pid = sleeper.pid()
+            val end = System.currentTimeMillis() + 5000
+            while ((!pidFile.exists() || pidFile.readText().isBlank()) && System.currentTimeMillis() < end) Thread.sleep(50)
+            val pid = pidFile.readText().trim()
             File(bin, "pidin").writeText("#!/bin/sh\necho \"  $pid 1 /dev/shmem/aa-tile 10r SIGWAITINFO\"\n")
             File(bin, "pidin").setExecutable(true)
             val job = TileScripts.job(TileScripts.Action.TEST, TileScripts.Mode.FOLLOW, program.size, launcher.size, hook.size, root = root.path, stage = File(root, "stage").path)
