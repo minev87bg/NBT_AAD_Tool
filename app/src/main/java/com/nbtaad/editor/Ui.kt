@@ -3,6 +3,7 @@ package com.nbtaad.editor
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -79,6 +81,32 @@ internal fun SettingsTheme(content: @Composable () -> Unit) {
     MaterialTheme(colorScheme = scheme, content = content)
 }
 
+/** The accent of the Add-ons page and every page under it: a soft violet that is easy on the eye on the dark theme. */
+internal val AddOnViolet = Color(0xFFB9A3F0)
+
+/** Like [SettingsTheme], for the Add-ons page and the pages that open from it (the tile, the menu look). */
+@Composable
+internal fun AddOnsTheme(content: @Composable () -> Unit) {
+    val base = MaterialTheme.colorScheme
+    val dark = base.background.luminance() < 0.5f
+    val scheme = if (dark) {
+        base.copy(
+            primary = AddOnViolet, onPrimary = Color(0xFF1A1330),
+            primaryContainer = Color(0xFF3A2F63), onPrimaryContainer = Color(0xFFE6DEFF),
+            secondaryContainer = Color(0xFF3A2F63), onSecondaryContainer = Color(0xFFE6DEFF),
+            surfaceTint = AddOnViolet,
+        )
+    } else {
+        base.copy(
+            primary = Color(0xFF6B4FBB), onPrimary = Color.White,
+            primaryContainer = Color(0xFFE9E2FF), onPrimaryContainer = Color(0xFF2A1B5C),
+            secondaryContainer = Color(0xFFE9E2FF), onSecondaryContainer = Color(0xFF2A1B5C),
+            surfaceTint = Color(0xFF6B4FBB),
+        )
+    }
+    MaterialTheme(colorScheme = scheme, content = content)
+}
+
 @Composable
 fun App(vm: MainViewModel) {
     Surface(Modifier.fillMaxSize().safeDrawingPadding()) {
@@ -91,11 +119,11 @@ fun App(vm: MainViewModel) {
                 Screen.EXPERIMENTAL -> ExperimentalScreen(vm)
                 Screen.CONTRIBUTE -> ContributeScreen(vm)
                 Screen.WIZARD -> WizardScreen(vm)
-                Screen.TILE -> TileScreen(vm)
-                Screen.MENULOOK -> MenuLookScreen(vm)
-                Screen.ADDONS -> AddOnsScreen(vm)
+                Screen.TILE -> AddOnsTheme { TileScreen(vm) }
+                Screen.MENULOOK -> AddOnsTheme { MenuLookScreen(vm) }
+                Screen.ADDONS -> AddOnsTheme { AddOnsScreen(vm) }
             }
-            ThemeToggle(vm, Modifier.align(Alignment.TopEnd).padding(4.dp))
+            ThemeToggle(vm, Modifier.align(Alignment.TopStart).padding(4.dp))
         }
         if (vm.showLog) AppLogDialog(vm)
         if (vm.askDongle) DongleDialog(vm)
@@ -161,6 +189,29 @@ private fun ThemeToggle(vm: MainViewModel, modifier: Modifier) {
 // =========================================================================
 // Screen 1: DETECT CAR
 // =========================================================================
+
+/** The three dots at the top right of the first screen: the tools that are not needed every time. */
+@Composable
+private fun MoreMenu(vm: MainViewModel, modifier: Modifier) {
+    var open by remember { mutableStateOf(false) }
+    val dot = MaterialTheme.colorScheme.onSurfaceVariant
+    Box(modifier) {
+        Box(
+            Modifier.size(40.dp).clip(CircleShape).clickable { open = true },
+            contentAlignment = Alignment.Center,
+        ) {
+            Canvas(Modifier.size(width = 4.dp, height = 18.dp)) {
+                val r = 2.dp.toPx()
+                for (i in 0..2) drawCircle(dot, radius = r, center = Offset(size.width / 2f, r + i * (size.height - 2 * r) / 2f))
+            }
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(text = { Text("Manual IPs") }, onClick = { open = false; vm.manualDialog = true })
+            DropdownMenuItem(text = { Text("Port probe") }, onClick = { open = false; vm.openProbe() })
+            DropdownMenuItem(text = { Text("App log") }, onClick = { open = false; vm.showLog = true })
+        }
+    }
+}
 
 @Composable
 private fun DetectScreen(vm: MainViewModel) {
@@ -235,24 +286,15 @@ private fun DetectScreen(vm: MainViewModel) {
             }
         }
 
-        Row(Modifier.align(Alignment.BottomStart)) {
-            TextButton(onClick = { vm.manualDialog = true }) { Text("manual IPs", fontSize = 12.sp) }
-            TextButton(onClick = { vm.openProbe() }) { Text("port probe", fontSize = 12.sp) }
-        }
+        // manual IPs, port probe and app log: the usual three dots at the top right
+        MoreMenu(vm, Modifier.align(Alignment.TopEnd).offset(x = 12.dp, y = 4.dp))
 
-        Column(Modifier.align(Alignment.BottomEnd).padding(end = 6.dp, bottom = 8.dp), horizontalAlignment = Alignment.End) {
-            TextButton(
-                onClick = { vm.showLog = true },
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                modifier = Modifier.height(28.dp),
-            ) { Text("app log", fontSize = 12.sp) }
-            Text(
-                "v${vm.appVersion}",
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(end = 8.dp, bottom = 8.dp),
-            )
-        }
+        Text(
+            "v${vm.appVersion}",
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = 16.dp),
+        )
 
         if (canNext) {
             Button(

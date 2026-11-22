@@ -176,6 +176,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** What the Add-ons page says about the zip that was picked (empty when all is well). */
     var addOnMessage by mutableStateOf("")
+
+    /** The add-on whose page is open on the Add-ons screen (its catalog id); null: the list. */
+    var addOnOpen by mutableStateOf<String?>(null)
     var addOnBusy by mutableStateOf(false); private set
 
     /**
@@ -216,6 +219,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun chooseAddOns() {
         inst.open()
         addOnMessage = ""
+        addOnOpen = null
         addOns.visit()
         screen = Screen.ADDONS
     }
