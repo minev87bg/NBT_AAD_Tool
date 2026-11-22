@@ -5,11 +5,55 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.io.ByteArrayInputStream
-import javax.imageio.ImageIO
+import java.io.ByteArrayOutputStream
+import java.util.zip.CRC32
+import java.util.zip.Inflater
 
 /** Making the menu look's pictures from one picture: where it goes, scaling, the plain background, the PNG file. */
 class PictureMakerTest {
+    /** A PNG read back without any image library (the file's own parts are checked on the way): size, colour type, and the bytes of each pixel. */
+    private class Decoded(val w: Int, val h: Int, val type: Int, private val raw: ByteArray) {
+        private val bpp = if (type == 4) 2 else 4
+        fun sample(x: Int, y: Int, band: Int): Int = raw[y * (w * bpp + 1) + 1 + x * bpp + band].toInt() and 0xFF
+        fun filter(y: Int): Int = raw[y * (w * bpp + 1)].toInt()
+    }
+
+    private fun int(b: ByteArray, at: Int) =
+        ((b[at].toInt() and 0xFF) shl 24) or ((b[at + 1].toInt() and 0xFF) shl 16) or ((b[at + 2].toInt() and 0xFF) shl 8) or (b[at + 3].toInt() and 0xFF)
+
+    private fun decode(b: ByteArray): Decoded {
+        var pos = 8
+        var w = 0; var h = 0; var type = 0
+        val idat = ByteArrayOutputStream()
+        var sawEnd = false
+        while (pos < b.size) {
+            val len = int(b, pos)
+            val name = String(b, pos + 4, 4, Charsets.ISO_8859_1)
+            val data = pos + 8
+            val crc = CRC32().apply { update(b, pos + 4, 4 + len) }.value.toInt()
+            assertEquals("crc of $name", crc, int(b, data + len))
+            when (name) {
+                "IHDR" -> { w = int(b, data); h = int(b, data + 4); type = b[data + 9].toInt(); assertEquals(8, b[data + 8].toInt()) }
+                "IDAT" -> idat.write(b, data, len)
+                "IEND" -> sawEnd = true
+            }
+            pos = data + len + 4
+        }
+        assertTrue("IEND", sawEnd)
+        val inf = Inflater()
+        inf.setInput(idat.toByteArray())
+        val bpp = if (type == 4) 2 else 4
+        val raw = ByteArray((w * bpp + 1) * h)
+        var got = 0
+        while (got < raw.size) {
+            val n = inf.inflate(raw, got, raw.size - got)
+            if (n == 0 && (inf.finished() || inf.needsInput())) break
+            got += n
+        }
+        assertEquals("inflated bytes", raw.size, got)
+        return Decoded(w, h, type, raw)
+    }
+
     private fun solid(w: Int, h: Int, argb: Int) = Pixels(w, h, IntArray(w * h) { argb })
     private val RED = 0xFFFF0000.toInt()
     private val WHITE = 0xFFFFFFFF.toInt()
@@ -90,12 +134,17 @@ class PictureMakerTest {
         val bytes = PngWriter.encode(px, 6)
         val info = MenuLook.png(bytes)!!
         assertEquals(3, info.width); assertEquals(2, info.height); assertEquals(6, info.colorType)
-        val img = ImageIO.read(ByteArrayInputStream(bytes))
-        for (y in 0 until 2) for (x in 0 until 3) {
-            val want = px.argb[y * 3 + x]
-            val got = img.getRGB(x, y)
-            assertEquals("alpha at $x,$y", want ushr 24, got ushr 24)
-            if ((want ushr 24) > 0) assertEquals("colour at $x,$y", want and 0xFFFFFF, got and 0xFFFFFF)
+        val d = decode(bytes)
+        assertEquals(6, d.type)
+        for (y in 0 until 2) {
+            assertEquals(0, d.filter(y))
+            for (x in 0 until 3) {
+                val want = px.argb[y * 3 + x]
+                assertEquals("red at $x,$y", (want shr 16) and 0xFF, d.sample(x, y, 0))
+                assertEquals("green at $x,$y", (want shr 8) and 0xFF, d.sample(x, y, 1))
+                assertEquals("blue at $x,$y", want and 0xFF, d.sample(x, y, 2))
+                assertEquals("alpha at $x,$y", want ushr 24, d.sample(x, y, 3))
+            }
         }
     }
 
@@ -104,9 +153,10 @@ class PictureMakerTest {
         val px = Pixels(2, 1, intArrayOf(0xFFFFFFFF.toInt(), 0x80FF0000.toInt()))
         val bytes = PngWriter.encode(px, 4)
         assertEquals(4, MenuLook.png(bytes)!!.colorType)
-        val r = ImageIO.read(ByteArrayInputStream(bytes)).raster
-        assertEquals(255, r.getSample(0, 0, 0)); assertEquals(255, r.getSample(0, 0, 1))
-        assertEquals(76, r.getSample(1, 0, 0)); assertEquals(128, r.getSample(1, 0, 1))
+        val d = decode(bytes)
+        assertEquals(4, d.type)
+        assertEquals(255, d.sample(0, 0, 0)); assertEquals(255, d.sample(0, 0, 1))
+        assertEquals(76, d.sample(1, 0, 0)); assertEquals(128, d.sample(1, 0, 1))
     }
 
     @Test
