@@ -44,6 +44,18 @@ class HeadUnitLightTest {
     }
 
     @Test
+    fun theOneLineOfTroubleSaysTheSameThing() {
+        val t = HeadUnitLight.PF_PROBLEM
+        assertTrue(t.contains("PF"))
+        assertTrue(t.contains("Android Auto menu"))
+        assertTrue(t.contains("restart Android Auto"))
+        assertTrue(t.contains("takes effect"))
+        // a detection that found no car and no blocked filter says nothing of the PF
+        assertFalse(DetectResult().pfBlocked)
+        assertTrue(DetectResult(pfBlocked = true, problem = t).pfBlocked)
+    }
+
+    @Test
     fun noAnswerAtAllIsNotBlamedOnThePacketFilter() {
         val l = HeadUnitLight.judge(listOf(Seen("172.16.224.1", null, null, aaPort = false), Seen("172.16.224.100", null, null, aaPort = false)), true)
         assertEquals(Kind.SILENT, l.kind)

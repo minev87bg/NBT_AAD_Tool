@@ -32,6 +32,7 @@ import com.nbtaad.editor.log.exportName
 import com.nbtaad.editor.log.saveTo
 import com.nbtaad.editor.log.start
 import com.nbtaad.editor.net.CarDetector
+import com.nbtaad.editor.net.HeadUnitLight
 import com.nbtaad.editor.net.HeadUnitWatch
 import com.nbtaad.editor.net.CarNet
 import com.nbtaad.editor.net.CarNetLogic
@@ -72,6 +73,8 @@ data class DetectState(
     val ssh: Boolean = false,
     /** The head unit was reached over the car's own Android Auto WiFi: there is no car gateway on that network. */
     val viaCarWifi: Boolean = false,
+    /** Android Auto answers on the car's own WiFi but the head unit's packet filter blocks SSH: the PF has to be removed. */
+    val pfBlocked: Boolean = false,
 )
 
 data class DialogLine(val text: String, val kind: LineKind = LineKind.INFO)
@@ -566,9 +569,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun applyResult(r: DetectResult) {
         AppLog.i("Detect", "Applied: gateway ${r.zgwIp}, VIN ${r.vin}, head unit ${r.huIp}, SSH ${r.sshOpen}, problem ${r.problem}")
-        detect = DetectState(r.zgwIp != null || r.viaCarWifi, r.zgwIp, r.huIp, r.vin, r.sshOpen, r.viaCarWifi)
+        detect = DetectState(r.zgwIp != null || r.viaCarWifi, r.zgwIp, r.huIp, r.vin, r.sshOpen, r.viaCarWifi, r.pfBlocked)
         feedbackError = false
         feedback = when {
+            r.pfBlocked -> {
+                feedbackError = true
+                r.problem ?: HeadUnitLight.PF_PROBLEM
+            }
             r.viaCarWifi && r.sshOpen -> "Connected through the car's Android Auto WiFi (no car gateway needed). SSH is open. Press NEXT."
             r.viaCarWifi -> {
                 feedbackError = true

@@ -58,6 +58,11 @@ data class DetectResult(
      * [problem] then says what is wrong with it (the login did not work), if anything.
      */
     val viaCarWifi: Boolean = false,
+    /**
+     * The car's own Android Auto WiFi is there and Android Auto answers on it, but SSH does not: the head unit's packet
+     * filter (PF) blocks the phone. [problem] says what to do.
+     */
+    val pfBlocked: Boolean = false,
 )
 
 object NetworkBinder {
@@ -348,6 +353,11 @@ object CarDetector {
                 DetectResult(huIp = c, sshOpen = true, viaCarWifi = true)
             }
         }
+        // no SSH anywhere: is it the packet filter? Android Auto's own port answers while port 22 does not
+        val candidates = routerCandidates(nets, hints)
+        if (candidates.isNotEmpty() && HeadUnitLight.judge(candidates.map { HeadUnitLight.see(it) }, true).kind == HeadUnitLight.Kind.PF_BLOCKED) {
+            return DetectResult(pfBlocked = true, problem = HeadUnitLight.PF_PROBLEM)
+        }
         return null
     }
 
@@ -389,7 +399,8 @@ object CarDetector {
         if (zgw == null || vin == null) {
             progress("No car gateway here. Looking for the head unit on this WiFi…")
             findHeadUnitOnRouter(nets, hints)?.let { r ->
-                AppLog.i("Detect", "Result: head unit ${r.huIp} over the car's own WiFi (no gateway), SSH open ${r.sshOpen}")
+                if (r.pfBlocked) AppLog.i("Detect", "Result: Android Auto answers on the car's own WiFi but SSH does not: the packet filter (PF) blocks it")
+                else AppLog.i("Detect", "Result: head unit ${r.huIp} over the car's own WiFi (no gateway), SSH open ${r.sshOpen}")
                 return r
             }
             return DetectResult(

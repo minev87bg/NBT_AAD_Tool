@@ -28,13 +28,13 @@ import java.util.Locale
  * wrong when SSH does not answer. The page keeps its buttons off until the light is green ([MainViewModel.watch]).
  */
 @Composable
-fun HeadUnitGate(vm: MainViewModel, paused: Boolean) {
+fun HeadUnitGate(vm: MainViewModel, paused: Boolean, onGreen: () -> Unit = { vm.onSshGreen() }) {
     val w = vm.watch
     val inst = vm.inst
     LaunchedEffect(paused) {
         if (paused) return@LaunchedEffect
         while (true) {
-            if (w.look()) vm.onSshGreen()
+            if (w.look()) onGreen()
             delay(if (w.green) 6000L else 3000L)
         }
     }

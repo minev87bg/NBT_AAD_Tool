@@ -57,6 +57,19 @@ object HeadUnitLight {
         "Wait here. This page keeps looking and turns green by itself.",
     )
 
+    /** The same, in one text, for the places that show a single line of trouble (a failed look at the head unit). */
+    const val PF_PROBLEM = "The head unit's packet filter (PF) blocks SSH on the car's Android Auto WiFi, so the app cannot reach it. " +
+        "Remove the PF in the head unit's Android Auto menu, then restart Android Auto so that the change takes effect, " +
+        "and try again."
+
+    /** What [host] answers on SSH and on Android Auto's own port: short connections that are closed again. */
+    fun see(host: String): Seen {
+        val ssh = CarDetector.probe(host, CarDetector.SSH_PORT, 1500)
+        val banner = if (ssh == PortState.OPEN) CarDetector.banner(host) else null
+        val aa = ssh != PortState.OPEN && CarDetector.probe(host, AA_PORT, 800) == PortState.OPEN
+        return Seen(host, ssh, banner, aa)
+    }
+
     const val PF_WHY = "The packet filter blocks SSH (port 22) on the car's Android Auto WiFi, so the app cannot reach the head unit. " +
         "Android Auto itself still answers."
 
@@ -106,7 +119,7 @@ class HeadUnitWatch(private val ctx: Context, private val known: () -> String?) 
             val hosts = LinkedHashSet<String>()
             known()?.let { hosts += it }
             hosts += CarDetector.routerCandidates(nets, hints)
-            val seen = coroutineScope { hosts.map { h -> async { see(h) } }.awaitAll() }
+            val seen = coroutineScope { hosts.map { h -> async { HeadUnitLight.see(h) } }.awaitAll() }
             HeadUnitLight.judge(seen, nets.isNotEmpty())
         } catch (e: CancellationException) {
             throw e
@@ -121,12 +134,5 @@ class HeadUnitWatch(private val ctx: Context, private val known: () -> String?) 
             AppLog.i("SshWatch", "${was.name} -> ${now.kind.name}${now.host?.let { " ($it)" } ?: ""}: ${HeadUnitLight.headline(now)}")
         }
         now.green && was != HeadUnitLight.Kind.GREEN
-    }
-
-    private fun see(host: String): HeadUnitLight.Seen {
-        val ssh = CarDetector.probe(host, CarDetector.SSH_PORT, 1500)
-        val banner = if (ssh == PortState.OPEN) CarDetector.banner(host) else null
-        val aa = ssh != PortState.OPEN && CarDetector.probe(host, HeadUnitLight.AA_PORT, 800) == PortState.OPEN
-        return HeadUnitLight.Seen(host, ssh, banner, aa)
     }
 }

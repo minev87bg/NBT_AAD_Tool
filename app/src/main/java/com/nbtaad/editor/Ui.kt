@@ -184,14 +184,24 @@ private fun DetectScreen(vm: MainViewModel) {
             modifier = Modifier.align(Alignment.TopCenter).offset(y = h * 0.5f + 22.dp).height(28.dp),
         ) { Text("Skip", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 
-        Text(
-            vm.feedback,
-            fontSize = 12.sp,
-            color = if (vm.feedbackError) Red else Color.Unspecified,
-            textAlign = TextAlign.Center,
-            maxLines = 4,
-            modifier = Modifier.align(Alignment.TopCenter).offset(y = h * 0.5f + 54.dp).fillMaxWidth(),
-        )
+        if (st.pfBlocked) {
+            // the packet filter blocks SSH: what to do, and a live look that turns green by itself and then detects the car again
+            Column(
+                Modifier.align(Alignment.TopCenter).offset(y = h * 0.5f + 44.dp).fillMaxWidth()
+                    .heightIn(max = h * 0.5f - 90.dp).verticalScroll(rememberScrollState()),
+            ) {
+                HeadUnitGate(vm, paused = vm.busy, onGreen = { vm.onDetect() })
+            }
+        } else {
+            Text(
+                vm.feedback,
+                fontSize = 12.sp,
+                color = if (vm.feedbackError) Red else Color.Unspecified,
+                textAlign = TextAlign.Center,
+                maxLines = 4,
+                modifier = Modifier.align(Alignment.TopCenter).offset(y = h * 0.5f + 54.dp).fillMaxWidth(),
+            )
+        }
 
         // information table at about 3/4 of the screen
         if (st.carFound) {
