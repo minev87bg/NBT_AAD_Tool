@@ -372,4 +372,85 @@ class TileScriptsTest {
         assertTrue(r.finished)
         assertTrue(job.contains("S=\${1:-${TileScripts.stageThere()}}"))
     }
+
+    // ---- a job that is waited for in the background ----
+
+    private fun shell(script: String): String {
+        val p = ProcessBuilder("/bin/sh", "-c", script).redirectErrorStream(true).start()
+        val out = p.inputStream.readBytes().toString(Charsets.UTF_8)
+        p.waitFor()
+        return out
+    }
+
+    private fun waitForFile(f: File, ms: Long = 6000): Boolean {
+        val end = System.currentTimeMillis() + ms
+        while (System.currentTimeMillis() < end) {
+            if (f.exists()) return true
+            Thread.sleep(50)
+        }
+        return f.exists()
+    }
+
+    @Test
+    fun aJobStartedInTheBackgroundReportsUnderItsOwnNameAndIsPolledUntilItIsOver() {
+        val stage = File(root, "stage")
+        File(stage, "job.sh").writeText(TileScripts.job(TileScripts.Action.STATUS, TileScripts.Mode.FOLLOW, program.size, launcher.size, hook.size, root = root.path, stage = stage.path, out = "out.abc"))
+        val started = shell(TileScripts.startDetached(stage.path, stage.path, "abc"))
+        assertEquals("STARTED", started.trim())
+        assertTrue("the job did not end", waitForFile(File(stage, "done.abc")))
+        assertFalse(File(stage, "out").exists())
+        val polled = shell(TileScripts.poll(stage.path, "abc"))
+        assertTrue(polled, polled.trimEnd().endsWith(TileScripts.POLL_FINISHED))
+        val r = TileScripts.parse(polled.substringBefore(TileScripts.POLL_FINISHED))
+        assertTrue(r.success)
+        assertEquals("yes", r.state["carlife"])
+        shell(TileScripts.cleanup(stage.path))
+        assertEquals(emptyList<String>(), stage.list()!!.toList())
+    }
+
+    @Test
+    fun aJobThatIsStillGoingIsSeenAsRunningAndStaleFilesOfTheSameNameAreNotItsReport() {
+        val stage = File(root, "stage")
+        // what an earlier run with the same name left behind
+        File(stage, "out.xyz").writeText("JOB old\nEND 0\n")
+        File(stage, "done.xyz").writeText("1\n")
+        File(stage, "job.sh").writeText("exec > \$1/out.xyz 2>&1\necho JOB new\nsleep 3\necho 'END 0'\n")
+        shell(TileScripts.startDetached(stage.path, stage.path, "xyz"))
+        assertTrue(waitForFile(File(stage, "out.xyz"), 3000))
+        val during = shell(TileScripts.poll(stage.path, "xyz")).trim()
+        assertEquals(TileScripts.POLL_RUNNING, during)
+        assertTrue("the job did not end", waitForFile(File(stage, "done.xyz"), 8000))
+        val after = shell(TileScripts.poll(stage.path, "xyz"))
+        assertTrue(after, after.contains("JOB new") && after.trimEnd().endsWith(TileScripts.POLL_FINISHED))
+    }
+
+    @Test
+    fun withoutAReportYetThePollSaysNothing() {
+        val stage = File(root, "stage")
+        assertEquals(TileScripts.POLL_NOTHING, shell(TileScripts.poll(stage.path, "none")).trim())
+    }
+
+    @Test
+    fun aTestThatFindsAnEarlierRunsProgramStillGoingStopsItFirstWhenItCanSeeIt() {
+        // pidin is the head unit's: here a stand-in lists a process whose name has shmem/aa-tile in it, and kill is the shell's own
+        val bin = File(root, "bin").also { it.mkdirs() }
+        val sleeper = ProcessBuilder("/bin/sh", "-c", "sleep 30").start()
+        try {
+            val pid = sleeper.pid()
+            File(bin, "pidin").writeText("#!/bin/sh\necho \"  $pid 1 /dev/shmem/aa-tile 10r SIGWAITINFO\"\n")
+            File(bin, "pidin").setExecutable(true)
+            val job = TileScripts.job(TileScripts.Action.TEST, TileScripts.Mode.FOLLOW, program.size, launcher.size, hook.size, root = root.path, stage = File(root, "stage").path)
+            val f = File(root, "stage/job.sh")
+            f.writeText(job)
+            val pb = ProcessBuilder("/bin/sh", f.path).redirectInput(ProcessBuilder.Redirect.from(File("/dev/null")))
+                .redirectOutput(ProcessBuilder.Redirect.to(File("/dev/null"))).redirectError(ProcessBuilder.Redirect.to(File("/dev/null")))
+            pb.environment()["PATH"] = bin.path + ":" + System.getenv("PATH")
+            pb.start().waitFor()
+            val r = TileScripts.parse(File(root, "stage/out").readText())
+            assertTrue(r.info.toString(), r.info.any { it.contains("earlier test of the tile was still running") })
+            assertTrue("the earlier program was not stopped", sleeper.waitFor(3, java.util.concurrent.TimeUnit.SECONDS))
+        } finally {
+            sleeper.destroyForcibly()
+        }
+    }
 }

@@ -332,9 +332,9 @@ class MenuLookController(
             )
             MenuLookScripts.Action.APPLY -> Result(
                 action, true, "Menu look applied", lines, r.log,
-                "Restart the head unit (power button 30 s). RESTORE puts the original files back.",
+                "Restart the head unit: press Reset HeadUnit below, or hold the power button for 30 s. RESTORE puts the original files back.",
             )
-            MenuLookScripts.Action.RESTORE -> Result(action, true, "Original files are back", lines, "", "Restart the head unit.")
+            MenuLookScripts.Action.RESTORE -> Result(action, true, "Original files are back", lines, "", "Restart the head unit: press Reset HeadUnit below, or hold the power button for 30 s.")
         }
     }
 

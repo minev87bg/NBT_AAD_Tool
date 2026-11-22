@@ -171,7 +171,7 @@ fun TileScreen(vm: MainViewModel) {
             Text(tile.step, fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 12.dp))
             LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 6.dp))
         }
-        tile.result?.let { ResultBox(tile, it) }
+        tile.result?.let { ResultBox(vm, tile, it) }
         Spacer(Modifier.height(32.dp))
     }
 }
@@ -195,7 +195,7 @@ private fun TestRunning(tile: TileController) {
     }
     Column(Modifier.padding(top = 8.dp)) {
         Text("$left s left. Now look at the iDrive:", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-        Text("• Is there an Android Auto tile in the main MENU?", fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
+        Text("• Is there a tile in the main MENU? It is labelled \"Baidu CarLife\": the tile reuses that entry.", fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
         Text("• Press it: Android Auto must come back.", fontSize = 12.sp)
         if (tile.mode == TileScripts.Mode.FOLLOW) {
             Text("• Switch off the phone's WiFi: the tile must disappear; switch on: it comes back.", fontSize = 12.sp)
@@ -207,22 +207,12 @@ private fun TestRunning(tile: TileController) {
 }
 
 @Composable
-private fun ResultBox(tile: TileController, r: TileController.Result) {
-    val tone = if (r.ok) Green else Red
-    val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    Column(
-        Modifier.padding(top = 16.dp).fillMaxWidth()
-            .border(2.dp, tone, RoundedCornerShape(12.dp))
-            .padding(12.dp),
-    ) {
-        Text((if (r.ok) "✓ " else "✗ ") + r.headline, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = tone)
-        for (l in r.lines.take(8)) Text("• $l", fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp))
-        r.hint?.let { Text(it, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp)) }
-        if (r.log.isNotBlank()) {
-            TextButton(onClick = { tile.showLog = !tile.showLog }) { Text(if (tile.showLog) "HIDE THE LOG" else "SHOW THE LOG", fontSize = 12.sp) }
-            if (tile.showLog) Text(r.log.take(6000), fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = muted)
-        }
-    }
+private fun ResultBox(vm: MainViewModel, tile: TileController, r: TileController.Result) {
+    ResultCard(
+        vm, r.ok, r.headline, r.lines, r.hint, r.log, tile.showLog, { tile.showLog = it },
+        restartAdvised = r.ok && (r.action == TileScripts.Action.INSTALL || r.action == TileScripts.Action.REMOVE),
+        modifier = Modifier.padding(top = 16.dp),
+    )
 }
 
 @Composable

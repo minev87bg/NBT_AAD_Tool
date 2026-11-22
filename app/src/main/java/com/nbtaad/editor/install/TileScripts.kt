@@ -114,6 +114,52 @@ object TileScripts {
         )
     }
 
+    /**
+     * Starts the job in the background and returns at once, printing `STARTED`. The job's own report goes to `out.<id>` and a
+     * file `done.<id>` is written when the job has ended, so [poll] can tell a job that is still going from one that is over.
+     * It is for a job that takes minutes (the test): the SSH connection to the head unit is the phone's WiFi link to the car,
+     * which can drop while Android Auto starts or stops, and a job that is waited for through one connection is then lost with
+     * it (the job itself goes on, and its leftovers can spoil the next run). The hang-up signal is ignored so that closing the
+     * connection does not stop the job.
+     */
+    fun startDetached(ram: String, there: String, id: String): String {
+        require(id.isNotEmpty() && id.all { it.isLetterOrDigit() })
+        val job = "$there/job.sh"
+        val run = if (ram.startsWith("/net/hu-omap/")) "on -f /net/hu-omap/ /bin/sh $job $there" else "/bin/sh $job $there"
+        return sh(
+            """
+            rm -f $ram/out.$id $ram/done.$id
+            ( trap '' 1; $run < /dev/null > /dev/null 2>&1; echo 1 > $ram/done.$id ) < /dev/null > /dev/null 2>&1 &
+            echo STARTED
+            exit 0
+            """
+        )
+    }
+
+    /**
+     * Asks how a job started with [startDetached] is doing: prints [POLL_FINISHED] after the report once the job has ended,
+     * [POLL_RUNNING] while it writes its report, [POLL_NOTHING] when there is no report yet.
+     */
+    fun poll(ram: String, id: String): String {
+        require(id.isNotEmpty() && id.all { it.isLetterOrDigit() })
+        return sh(
+            """
+            if [ -f $ram/done.$id ]; then cat $ram/out.$id 2>/dev/null; echo "$POLL_FINISHED"
+            elif [ -f $ram/out.$id ]; then echo "$POLL_RUNNING"
+            else echo "$POLL_NOTHING"
+            fi
+            exit 0
+            """
+        )
+    }
+
+    /** Takes what a finished run left in the staging folder away. */
+    fun cleanup(ram: String): String = sh("rm -f $ram/*\nexit 0")
+
+    const val POLL_FINISHED = "POLL-FINISHED"
+    const val POLL_RUNNING = "POLL-RUNNING"
+    const val POLL_NOTHING = "POLL-NOTHING"
+
     // ---- on hu-omap ----
 
     /**
@@ -128,13 +174,16 @@ object TileScripts {
         hookSize: Int = 0,
         root: String = "",
         stage: String = stageThere(),
+        /** The name of the report file in the staging folder: a run that is waited for in the background has a name of its own. */
+        out: String = "out",
     ): String {
         require(programSize >= 0 && launcherSize >= 0 && hookSize >= 0)
         require(root.none { it in "'\"\\\n ¤" } && stage.none { it in "'\"\\\n ¤" })
+        require(out.isNotEmpty() && out.all { it.isLetterOrDigit() || it == '.' || it == '-' })
         val head = """
             R=$root
             S=¤{1:-$stage}
-            exec > ¤S/out 2>&1
+            exec > ¤S/$out 2>&1
             W=¤R/opt/conn/bin/start_webserver.sh
             D=¤R/opt/aa-tile
             B=¤D/start_webserver.sh.original
@@ -200,6 +249,12 @@ object TileScripts {
         [ "¤(size ¤S/aa-tile)" = "¤PS" ] || fail "aa-tile arrived with the wrong size (¤(size ¤S/aa-tile) bytes, not ¤PS). It was not started."
         P=¤SH/aa-tile
         L=¤SH/aa-tile.log
+        # an earlier test that is still going (its connection was lost, say) would take the tile's place on the head unit
+        if pidin 2>/dev/null | grep 'shmem/aa-tile' | grep -v grep >/dev/null 2>&1; then
+          pidin 2>/dev/null | grep 'shmem/aa-tile' | grep -v grep | while read p r; do kill ¤p; done
+          echo "INFO an earlier test of the tile was still running and was stopped first"
+          sleep 2
+        fi
         rm -f ¤P ¤L
         # the stage is not executable: copy a program (its execute bit stays), then write the file's content over it
         cp /bin/ls ¤P && cat ¤S/aa-tile > ¤P || { rm -f ¤P; fail "Cannot copy aa-tile into RAM."; }

@@ -252,7 +252,7 @@ fun MenuLookScreen(vm: MainViewModel) {
             Text(m.step, fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 12.dp))
             LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 6.dp))
         }
-        m.result?.let { MlResult(m, it) }
+        m.result?.let { MlResult(vm, m, it) }
         Spacer(Modifier.height(32.dp))
     }
 }
@@ -361,21 +361,12 @@ private fun MlBox(modifier: Modifier = Modifier, content: @Composable () -> Unit
 }
 
 @Composable
-private fun MlResult(m: MenuLookController, r: MenuLookController.Result) {
-    val tone = if (r.ok) Green else Red
-    Column(
-        Modifier.padding(top = 16.dp).fillMaxWidth()
-            .border(2.dp, tone, RoundedCornerShape(12.dp))
-            .padding(12.dp),
-    ) {
-        Text((if (r.ok) "✓ " else "✗ ") + r.headline, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = tone)
-        for (l in r.lines.take(10)) Text("• $l", fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp))
-        r.hint?.let { Text(it, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp)) }
-        if (r.log.isNotBlank()) {
-            TextButton(onClick = { m.showLog = !m.showLog }) { Text(if (m.showLog) "HIDE THE LOG" else "SHOW THE LOG", fontSize = 12.sp) }
-            if (m.showLog) Text(r.log.take(6000), fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
+private fun MlResult(vm: MainViewModel, m: MenuLookController, r: MenuLookController.Result) {
+    ResultCard(
+        vm, r.ok, r.headline, r.lines, r.hint, r.log, m.showLog, { m.showLog = it },
+        restartAdvised = r.ok && (r.action == MenuLookScripts.Action.APPLY || r.action == MenuLookScripts.Action.RESTORE),
+        modifier = Modifier.padding(top = 16.dp),
+    )
 }
 
 @Composable

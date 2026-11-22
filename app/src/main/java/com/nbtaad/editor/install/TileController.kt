@@ -151,7 +151,7 @@ class TileController(
                     action, good,
                     if (good) "Test passed" else "Test failed",
                     listOf(TileScripts.exitMeaning(r.rc)) + lines, r.log,
-                    if (good) "Did the tile show in the iDrive main menu, and did pressing it bring Android Auto back? Then install it."
+                    if (good) "Did the tile show in the iDrive main menu (it is labelled \"Baidu CarLife\": the tile reuses that entry, the menu look add-on renames it), and did pressing it bring Android Auto back? Then install it."
                     else if (r.rc == 1 && r.log.contains("cannot be found", ignoreCase = true))
                         "The program could not load the head unit's display library (libsys_dsi_colibry). The lines above say what this head unit has of it: keep the log and send it."
                     else if (r.rc == 2) "Start Android Auto on the phone first and run the test again."
@@ -160,9 +160,9 @@ class TileController(
             }
             TileScripts.Action.INSTALL -> Result(
                 action, true, "Installed, mode: ${mode.label.lowercase()}", lines, "",
-                "Restart the head unit (power button 30 s). The tile starts about 25 s after Android Auto is running.",
+                "Restart the head unit: press Reset HeadUnit below, or hold the power button for 30 s. The tile starts about 25 s after Android Auto is running.",
             )
-            TileScripts.Action.REMOVE -> Result(action, true, "Removed", lines, "", "Restart the head unit so that it starts without the tile.")
+            TileScripts.Action.REMOVE -> Result(action, true, "Removed", lines, "", "Restart the head unit so that it starts without the tile: press Reset HeadUnit below, or hold the power button for 30 s.")
         }
     }
 

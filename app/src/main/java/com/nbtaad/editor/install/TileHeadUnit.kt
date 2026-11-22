@@ -20,11 +20,15 @@ object TileHeadUnit {
         val files = if (sending) listOf(
             TileKits.PROGRAM to kit!!.program, TileKits.LAUNCHER to kit.launcher, TileKits.HOOK to kit.hook,
         ) else emptyList()
+        // the test takes minutes, and the connection to the head unit can drop meanwhile: it runs in the background there
+        // and is asked about, with a report name of its own so that nothing an earlier run left can be taken for its report
+        val runId = if (action == TileScripts.Action.TEST) java.lang.Long.toString(System.currentTimeMillis() % 100_000_000L, 36) else null
         val job = TileScripts.job(
             action, mode,
             programSize = kit?.program?.size ?: 0,
             launcherSize = kit?.launcher?.size ?: 0,
             hookSize = kit?.hook?.size ?: 0,
+            out = if (runId != null) "out.$runId" else "out",
         )
         rep.say(
             when (action) {
@@ -37,6 +41,6 @@ object TileHeadUnit {
         )
         val wait = if (action == TileScripts.Action.TEST) (TileScripts.TEST_SECONDS + 90) * 1000L else 90_000L
         val needsWrite = action == TileScripts.Action.INSTALL || action == TileScripts.Action.REMOVE
-        return HuJob.run(host, "tile ${action.word}", files, job, needsWrite, wait, rep)
+        return HuJob.run(host, "tile ${action.word}", files, job, needsWrite, wait, rep, runId)
     }
 }

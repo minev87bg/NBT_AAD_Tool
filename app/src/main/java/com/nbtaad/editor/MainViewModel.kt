@@ -21,6 +21,7 @@ import com.nbtaad.editor.env.EnvCheck
 import com.nbtaad.editor.env.EnvDoc
 import com.nbtaad.editor.env.Opt
 import com.nbtaad.editor.addon.AddOns
+import com.nbtaad.editor.install.HuRestart
 import com.nbtaad.editor.install.InstallController
 import com.nbtaad.editor.install.MenuLookController
 import com.nbtaad.editor.install.SourceFile
@@ -45,6 +46,7 @@ import com.nbtaad.editor.net.EnvRemote
 import com.nbtaad.editor.net.Hsfz
 import com.nbtaad.editor.net.NetworkBinder
 import com.nbtaad.editor.net.PortProbe
+import com.nbtaad.editor.net.PortState
 import com.nbtaad.editor.net.Reach
 import com.nbtaad.editor.net.Online
 import com.nbtaad.editor.net.friendlyError
@@ -55,6 +57,7 @@ import com.nbtaad.editor.update.UpdateOffer
 import com.nbtaad.editor.update.Updater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -762,6 +765,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     )
                 }
                 AppLog.i("Reset", "Scan before the reset: gateway ${scan.zgwIp}, head unit ${scan.huIp}, SSH ${scan.sshOpen}; sending to $gw")
+                val shellHost = scan.huIp
+                if (gw == null && scan.sshOpen && shellHost != null) {
+                    // the car's own WiFi has no gateway to send to, but the head unit's shell answers: it is asked to restart
+                    restartThroughShell(shellHost, ::note)
+                    return@launch
+                }
                 if (gw == null) {
                     val text = scan.problem ?: "No car detected."
                     feedbackError = true
@@ -814,6 +823,63 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }
+
+    /**
+     * Asks the head unit's shell to restart (the gateway is out of reach on the car's Android Auto WiFi) and follows it: the
+     * SSH answer has to go away, which shows that it restarted, and come back, which needs Android Auto to be connected again.
+     */
+    private suspend fun CoroutineScope.restartThroughShell(host: String, note: (String) -> Unit) {
+        feedback = "Asking the head unit to restart…"
+        note("Asking the head unit to restart…")
+        val r = HuRestart.ask(host)
+        if (r.error != null) {
+            feedbackError = true
+            feedback = r.error
+            note(r.error)
+            return
+        }
+        detect = detect.copy(ssh = false)
+        var waited = 0
+        var wentDown = false
+        val downBy = System.currentTimeMillis() + 90_000
+        while (isActive && !wentDown && System.currentTimeMillis() < downBy) {
+            feedback = "Waiting for the head unit to shut down… (${waited}s)"
+            note("The head unit is restarting… (${waited}s)")
+            delay(3000)
+            waited += 3
+            wentDown = HeadUnitLight.see(host).ssh != PortState.OPEN
+        }
+        if (!wentDown) {
+            val text = "The head unit was asked to restart, but it kept answering. Hold the power button for 30 seconds instead."
+            AppLog.w("Reset", text)
+            feedbackError = true
+            feedback = text
+            note(text)
+            return
+        }
+        AppLog.i("Reset", "The head unit's SSH went away after ${waited}s: it is restarting")
+        val backBy = System.currentTimeMillis() + 300_000
+        while (isActive && System.currentTimeMillis() < backBy) {
+            feedback = "The head unit is restarting… (${waited}s)"
+            note("The head unit is restarting… (${waited}s)")
+            delay(5000)
+            waited += 5
+            val seen = HeadUnitLight.see(host)
+            if (HeadUnitLight.judge(listOf(seen), true).green) {
+                detect = detect.copy(hu = host, ssh = true)
+                feedback = "Head unit is back and SSH is open. Press NEXT."
+                note("The head unit is back.")
+                return
+            }
+        }
+        val text = "The head unit restarted. SSH answers again once Android Auto is connected to the phone again: start it, then press DETECT CAR."
+        AppLog.i("Reset", text)
+        feedback = text
+        note(text)
+    }
+
+    /** A reset can be sent: through the car's gateway, or, on the car's Android Auto WiFi where there is none, asked of the head unit's shell. */
+    val canResetHeadUnit: Boolean get() = (detect.zgw != null && detect.vin != null) || (detect.hu != null && detect.ssh)
 
     /** Why the last look for the car, started by an action that needed it, found no head unit (null: it found one). */
     @Volatile

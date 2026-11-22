@@ -1024,7 +1024,7 @@ private fun DiagDialog(inst: InstallController, text: String) {
 @Composable
 internal fun ResetButton(vm: MainViewModel, modifier: Modifier = Modifier) {
     val note = vm.resetNote
-    val canReset = vm.detect.zgw != null && vm.detect.vin != null
+    val canReset = vm.canResetHeadUnit
     val failed = note != null && vm.feedbackError && !vm.resetting
     if (note != null) {
         Column(modifier.fillMaxWidth()) {

@@ -1,0 +1,55 @@
+package com.nbtaad.editor.install
+
+import com.nbtaad.editor.log.AppLog
+
+/**
+ * Restarts the head unit through its shell, for the car's Android Auto WiFi, where the car's gateway (the way the other
+ * reset reaches the head unit) cannot be reached. The job runs in hu-omap's shell like the tile's and the menu look's:
+ * it looks for the `shutdown` command in the places a QNX system keeps it, and when it finds one it asks it, after a few
+ * seconds' delay so that the report can be read first, to shut down and start again (`-b`). A head unit without that
+ * command says so, and the person is told to hold the power button, which is what the projects' guides say anyway.
+ */
+object HuRestart {
+    private val places = listOf("/sbin", "/usr/sbin", "/bin", "/usr/bin", "/proc/boot", "/usr/local/bin")
+
+    /** [root] and [stage] are "" and the staging folder on the head unit; [delaySeconds] is the wait before the command runs. */
+    fun job(root: String = "", stage: String = TileScripts.stageThere(), delaySeconds: Int = 4): String {
+        require(root.none { it in "'\"\\\n ¤" } && stage.none { it in "'\"\\\n ¤" })
+        require(delaySeconds in 0..60)
+        val list = places.joinToString(" ")
+        return TileScripts.sh(
+            """
+            R=$root
+            S=¤{1:-$stage}
+            exec > ¤S/out 2>&1
+            echo "JOB restart"
+            CMD=""
+            for d in $list; do
+              if [ -f ¤R¤d/shutdown ]; then
+                echo "INFO shutdown is in ¤d"
+                [ -z "¤CMD" ] && CMD=¤R¤d/shutdown
+              fi
+            done
+            if [ -z "¤CMD" ]; then
+              echo "ERR $NO_COMMAND"
+              echo "END 1"
+              exit 1
+            fi
+            ( trap '' 1; sleep $delaySeconds; ¤CMD -b ) < /dev/null > /dev/null 2>&1 &
+            echo "OK the head unit is asked to restart in $delaySeconds seconds (shutdown -b)"
+            echo "END 0"
+            exit 0
+            """,
+        )
+    }
+
+    const val NO_COMMAND = "This head unit's shell has no shutdown command, so it cannot be restarted from here. Hold the power button for 30 seconds instead."
+
+    /** Asks the head unit at [host] to restart. A report with an `error` says why it was not asked; an exception, that it could not be reached. */
+    fun ask(host: String): TileScripts.Report {
+        val rep = Reporter(say = { _, _ -> }, progress = { _, _, _ -> })
+        val r = HuJob.run(host, "restart", emptyList(), job(), remount = false, waitMs = 60_000, rep = rep)
+        AppLog.i("Reset", "The head unit's shell was asked to restart: error ${r.error ?: "none"}, ${(r.ok + r.info).joinToString("; ")}")
+        return r
+    }
+}
