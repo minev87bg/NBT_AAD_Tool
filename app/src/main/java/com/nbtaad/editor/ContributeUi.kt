@@ -327,7 +327,7 @@ private fun PackedBlock(c: ContributeController, p: PackedLogs, save: (String) -
         color = soft,
     )
     Button(onClick = openPage, enabled = c.saved, modifier = Modifier.padding(top = 4.dp)) {
-        Text("OPEN IN BROWSER", fontSize = 12.sp)
+        Text("OPEN ON GITHUB", fontSize = 12.sp)
     }
     if (!c.saved) Text("Save the zip first.", fontSize = 11.sp, color = soft)
 }

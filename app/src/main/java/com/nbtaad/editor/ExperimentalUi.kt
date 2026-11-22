@@ -55,6 +55,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
@@ -65,6 +66,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -79,6 +81,7 @@ import com.nbtaad.editor.experimental.Show
 import com.nbtaad.editor.experimental.SortBy
 import com.nbtaad.editor.experimental.Markdown
 import com.nbtaad.editor.experimental.Topic
+import com.nbtaad.editor.contribute.GitHubApp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -160,8 +163,8 @@ private const val LIST_INFO =
         "The names of Sq00ky, mhmm-ok and tom-pryor, who build the project, are lit up in blue, with a blue frame " +
         "around their pages and comments, so that what they write is easy to find. Thank you, all three.\n\n" +
         "The star follows a page. FOLLOWING lists just those pages, open or closed.\n\n" +
-        "Open a page and press PREPARE LOGS to take part: the app guides you through a test and sends its logs to " +
-        "that page.\n\n" +
+        "Open a page to take part. POST WITHOUT LOGS writes on it in the GitHub app. POST WITH LOGS guides you through a " +
+        "test and packs its logs, ready to attach on that page.\n\n" +
         "Files shared in a discussion come from other people. The app can check what a file is, not whether it is safe."
 
 @Composable
@@ -400,6 +403,8 @@ internal fun openLink(handler: androidx.compose.ui.platform.UriHandler, url: Str
 private fun TopicDetail(vm: MainViewModel, t: Topic) {
     val exp = vm.exp
     val uri = LocalUriHandler.current
+    val ctx = LocalContext.current
+    var askApp by remember { mutableStateOf(false) }
     val comments = exp.comments
     val files = remember(t, comments) { com.nbtaad.editor.experimental.Digest.filesOf(t, comments ?: emptyList()) }
     val settings = remember(t, comments) {
@@ -543,17 +548,56 @@ private fun TopicDetail(vm: MainViewModel, t: Topic) {
             tonalElevation = 3.dp,
             shadowElevation = 6.dp,
         ) {
-            Button(
-                onClick = { vm.wizard.askMode = true },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            ) { Text("PREPARE LOGS") }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                // no logs: write on the page in the GitHub app (the account is on GitHub, not in this app)
+                OutlinedButton(
+                    onClick = {
+                        when (GitHubApp.open(ctx, t.url)) {
+                            GitHubApp.Outcome.OPENED -> {}
+                            GitHubApp.Outcome.NOT_INSTALLED -> askApp = true
+                            GitHubApp.Outcome.WOULD_NOT_OPEN -> openLink(uri, t.url)
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                ) { Text("POST WITHOUT LOGS", fontSize = 12.sp, textAlign = TextAlign.Center) }
+                // with logs: the logs page; once the zip is made it has the button to the page on GitHub
+                Button(
+                    onClick = { vm.wizard.askMode = true },
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                ) { Text("POST WITH LOGS", fontSize = 12.sp, textAlign = TextAlign.Center) }
+            }
         }
     }
+    if (askApp) GitHubAppDialog(onStore = { askApp = false; GitHubApp.openStore(ctx) }, onBrowser = { askApp = false; openLink(uri, t.url) }, onClose = { askApp = false })
     if (vm.wizard.askMode) PrepareChoiceDialog(vm, t)
     exp.inside?.let { InsideDialog(exp, it) }
     if (exp.aiKeyDialog) AiKeyDialog(exp)
     exp.textDoc?.let { doc -> TextFileDialog(doc) { exp.closeText() } }
     exp.gallery?.let { g -> GalleryDialog(g) { exp.closeGallery() } }
+}
+
+/** The GitHub app is not on the phone: to the store for it, or on in the browser. */
+@Composable
+private fun GitHubAppDialog(onStore: () -> Unit, onBrowser: () -> Unit, onClose: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("The GitHub app is not on this phone") },
+        text = {
+            Text(
+                "Writing on a page needs a GitHub account, and the GitHub app is the easy way to use it from a phone. " +
+                    "Get it from the store, sign in, then come back and press POST WITHOUT LOGS again. " +
+                    "Or write on the page in the browser.",
+                fontSize = 13.sp,
+            )
+        },
+        confirmButton = { TextButton(onClick = onStore) { Text("GET THE APP") } },
+        dismissButton = { TextButton(onClick = onBrowser) { Text("OPEN IN BROWSER") } },
+    )
 }
 
 @Composable

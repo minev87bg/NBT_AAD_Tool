@@ -34,7 +34,7 @@ class WizardController(
     var topic by mutableStateOf<Topic?>(null); private set
     var step by mutableStateOf(WizardStep.VERSION); private set
 
-    /** The question "wizard or manual?" that PREPARE LOGS asks. */
+    /** The question "wizard or manual?" that POST WITH LOGS asks. */
     var askMode by mutableStateOf(false)
 
     /** The window that says why Android Auto must keep running, with the tick. */

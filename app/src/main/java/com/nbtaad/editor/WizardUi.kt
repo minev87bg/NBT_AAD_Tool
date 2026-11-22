@@ -22,7 +22,7 @@ import com.nbtaad.editor.experimental.Topic
 import com.nbtaad.editor.net.WifiPanel
 
 // =========================================================================
-// PREPARE LOGS: the question (wizard or manual) and the wizard itself
+// POST WITH LOGS: the question (wizard or manual) and the wizard itself
 // =========================================================================
 
 /** A button with its (i) next to it: what the button does is explained in the small balloon. */
@@ -39,12 +39,12 @@ private fun ChoiceRow(label: String, info: String, onClick: () -> Unit) {
     }
 }
 
-/** PREPARE LOGS on a page was pressed: a guided way, or the page where the person picks the files himself. */
+/** POST WITH LOGS on a page was pressed: a guided way, or the page where the person picks the files himself. */
 @Composable
 internal fun PrepareChoiceDialog(vm: MainViewModel, t: Topic) {
     AlertDialog(
         onDismissRequest = { vm.wizard.askMode = false },
-        title = { Text("Prepare logs") },
+        title = { Text("Post with logs") },
         text = {
             Column {
                 Text(
@@ -87,12 +87,12 @@ fun WizardScreen(vm: MainViewModel) {
                         Text(if (w.step == WizardStep.VERSION) "‹  Back to the page" else "‹  Back", fontSize = 12.sp)
                     }
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Prepare logs", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        Text("Post with logs", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                         Box {
                             InfoDot { info = true }
                             if (info) {
                                 InfoBalloon(
-                                    "Prepare logs",
+                                    "Post with logs",
                                     "Nothing is sent by the app. It makes one zip from the head unit's logs, with the WiFi " +
                                         "password, the VIN and the GPS positions hidden, saves it in Downloads and opens the page at its " +
                                         "comment box, where you attach it.\n\nThe logs are in the head unit's memory, so " +

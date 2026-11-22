@@ -232,7 +232,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         keptCopy = { link, topic -> inst.keptCopy(link.url, link.name, topic.url) },
     )
 
-    /** The manual way of PREPARE LOGS: the daemon's logs from the head unit, packed into a zip for an issue. */
+    /** The manual way of POST WITH LOGS: the daemon's logs from the head unit, packed into a zip for an issue. */
     val contribute = ContributeController(
         ctx, viewModelScope, host = { detect.hu }, rescan = { rescanForHost() }, problem = { scanProblem },
         headUnitVersion = { inst.unit?.installedVersion },
@@ -949,7 +949,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         screen = Screen.EXPERIMENTAL
     }
 
-    // ---------------- PREPARE LOGS ----------------
+    // ---------------- POST WITH LOGS ----------------
 
     /** USE WIZARD: the guided way for the page [t]. */
     fun prepareWizard(t: Topic) {

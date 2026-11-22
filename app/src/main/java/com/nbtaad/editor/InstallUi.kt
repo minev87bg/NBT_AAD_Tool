@@ -113,7 +113,7 @@ fun HubScreen(vm: MainViewModel) {
             info = "Read what people report, test and suggest in Sq00ky's project: issues and pull requests, sorted by " +
                 "recent activity or by the day they were opened, with the pages that share files (test builds, logs) " +
                 "marked. Follow the pages you care about with the star.\n\n" +
-                "On a page, PREPARE LOGS takes you through a test step by step and sends its logs to that page. " +
+                "On a page, POST WITH LOGS takes you through a test step by step and packs its logs for that page; POST WITHOUT LOGS writes on it in the GitHub app. " +
                 "More ways to take part will come here.",
             icon = HubIcon.COMMUNITY,
             colors = listOf(Color(0xFFF2C46E), Color(0xFFD99A33)),
