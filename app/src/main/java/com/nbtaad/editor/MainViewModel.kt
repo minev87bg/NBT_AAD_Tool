@@ -217,7 +217,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun chooseAddOns() {
-        inst.open()
+        // the list needs the files kept on the phone and the releases of the add-ons, not a look for the car: that is done
+        // when an add-on's own page opens (and a tap on an add-on must not wait for it)
+        inst.loadShelf()
         addOnMessage = ""
         addOnOpen = null
         addOns.visit()

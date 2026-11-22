@@ -128,6 +128,13 @@ class InstallController(
 
     val working: Boolean get() = prepBusy || unitBusy || fileBusy || job?.status == RunStatus.RUNNING
 
+    /**
+     * Is a file being prepared or an install running? Choosing a file (a kept one, one from the phone) has to wait for
+     * that, but not for a look at the head unit: that look takes seconds when no car answers, and a tap on an add-on
+     * that is dropped meanwhile looks like a button that does nothing.
+     */
+    val busyWithFile: Boolean get() = prepBusy || job?.status == RunStatus.RUNNING
+
     /** Is there a head unit to work on? Not when the first screen found none or was skipped. */
     val hasHost: Boolean get() = host() != null
 
@@ -139,9 +146,14 @@ class InstallController(
 
     /** Called when the screen opens: loads what is cheap and read-only. */
     fun open() {
-        scope.launch(Dispatchers.IO) { shelf = shelfStore.list() }
+        loadShelf()
         if (releases == null && !releasesBusy) loadReleases()
         if (unit == null && !unitBusy) readUnit()
+    }
+
+    /** Reads the list of the files kept on the phone (no car and no internet needed). */
+    fun loadShelf() {
+        scope.launch(Dispatchers.IO) { shelf = shelfStore.list() }
     }
 
     // ---------------- the project's releases ----------------
@@ -209,7 +221,7 @@ class InstallController(
     // ---------------- files from the phone ----------------
 
     fun usePhoneFiles(uris: List<Uri>) {
-        if (uris.isEmpty() || working) return
+        if (uris.isEmpty() || busyWithFile) return
         prepBusy = true
         prepError = false
         prepFraction = null
@@ -240,7 +252,7 @@ class InstallController(
     // ---------------- a file that someone shared in an issue or pull request ----------------
 
     fun useDownloaded(file: SourceFile, origin: String, pageUrl: String?, shelfId: String? = null) {
-        if (working) return
+        if (busyWithFile) return
         prepBusy = true
         prepError = false
         prepFraction = null
@@ -307,7 +319,7 @@ class InstallController(
 
     /** Takes a kept file to the choice above (the same steps as a file just downloaded). */
     fun useShelf(item: ShelfItem) {
-        if (working) return
+        if (busyWithFile) return
         scope.launch(Dispatchers.IO) {
             val f = shelfStore.load(item)
             shelf = shelfStore.list()
