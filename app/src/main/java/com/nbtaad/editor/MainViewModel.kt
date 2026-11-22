@@ -838,6 +838,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             note(r.error)
             return
         }
+        if (r.state["kind"] == "hmi") {
+            // only the iDrive software restarts: the head unit keeps running, so SSH stays up and its start files do not run again
+            val text = "The head unit's iDrive software was asked to restart (not the whole head unit). " +
+                "A tile that was just installed starts with a full restart: hold the power button for 30 seconds."
+            AppLog.i("Reset", text)
+            feedback = text
+            note(text)
+            return
+        }
         detect = detect.copy(ssh = false)
         var waited = 0
         var wentDown = false

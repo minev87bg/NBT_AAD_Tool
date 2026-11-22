@@ -4,10 +4,13 @@ import com.nbtaad.editor.log.AppLog
 
 /**
  * Restarts the head unit through its shell, for the car's Android Auto WiFi, where the car's gateway (the way the other
- * reset reaches the head unit) cannot be reached. The job runs in hu-omap's shell like the tile's and the menu look's:
- * it looks for the `shutdown` command in the places a QNX system keeps it, and when it finds one it asks it, after a few
- * seconds' delay so that the report can be read first, to shut down and start again (`-b`). A head unit without that
- * command says so, and the person is told to hold the power button, which is what the projects' guides say anyway.
+ * reset reaches the head unit) cannot be reached. The job runs in hu-omap's shell like the tile's and the menu look's.
+ * It looks in the places a QNX system keeps its commands, and prefers a restart of the whole head unit: `shutdown -b`.
+ * Without that command it uses the one Sq00ky's install guide gives after a plugin is installed, `OnOffDSICommander
+ * appreset`, which restarts only the HMI (the iDrive software): the report says which of the two it was (`ST kind full` or
+ * `ST kind hmi`), because only a full restart runs the start files again (the tile's boot hook is one). Both are run after a
+ * few seconds' delay, so that the report can be read first. A head unit with neither says so, and the person is told to
+ * hold the power button, which is what the projects' guides say anyway.
  */
 object HuRestart {
     private val places = listOf("/sbin", "/usr/sbin", "/bin", "/usr/bin", "/proc/boot", "/usr/local/bin")
@@ -24,26 +27,39 @@ object HuRestart {
             exec > ¤S/out 2>&1
             echo "JOB restart"
             CMD=""
+            APP=""
             for d in $list; do
               if [ -f ¤R¤d/shutdown ]; then
                 echo "INFO shutdown is in ¤d"
                 [ -z "¤CMD" ] && CMD=¤R¤d/shutdown
               fi
+              if [ -f ¤R¤d/OnOffDSICommander ]; then
+                echo "INFO OnOffDSICommander is in ¤d"
+                [ -z "¤APP" ] && APP=¤R¤d/OnOffDSICommander
+              fi
             done
-            if [ -z "¤CMD" ]; then
-              echo "ERR $NO_COMMAND"
-              echo "END 1"
-              exit 1
+            if [ -n "¤CMD" ]; then
+              ( trap '' 1; sleep $delaySeconds; ¤CMD -b ) < /dev/null > /dev/null 2>&1 &
+              echo "ST kind full"
+              echo "OK the head unit is asked to restart in $delaySeconds seconds (shutdown -b)"
+              echo "END 0"
+              exit 0
             fi
-            ( trap '' 1; sleep $delaySeconds; ¤CMD -b ) < /dev/null > /dev/null 2>&1 &
-            echo "OK the head unit is asked to restart in $delaySeconds seconds (shutdown -b)"
-            echo "END 0"
-            exit 0
+            if [ -n "¤APP" ]; then
+              ( trap '' 1; sleep $delaySeconds; ¤APP appreset ) < /dev/null > /dev/null 2>&1 &
+              echo "ST kind hmi"
+              echo "OK the head unit's HMI is asked to restart in $delaySeconds seconds (OnOffDSICommander appreset)"
+              echo "END 0"
+              exit 0
+            fi
+            echo "ERR $NO_COMMAND"
+            echo "END 1"
+            exit 1
             """,
         )
     }
 
-    const val NO_COMMAND = "This head unit's shell has no shutdown command, so it cannot be restarted from here. Hold the power button for 30 seconds instead."
+    const val NO_COMMAND = "This head unit's shell has no restart command (shutdown or OnOffDSICommander), so it cannot be restarted from here. Hold the power button for 30 seconds instead."
 
     /** Asks the head unit at [host] to restart. A report with an `error` says why it was not asked; an exception, that it could not be reached. */
     fun ask(host: String): TileScripts.Report {

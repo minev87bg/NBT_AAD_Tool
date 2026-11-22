@@ -51,6 +51,41 @@ class HuRestartTest {
         while (!asked.exists() && System.currentTimeMillis() < end) Thread.sleep(50)
         assertTrue("shutdown was not run", asked.exists())
         assertEquals("-b", asked.readText().trim())
+        assertEquals("full", r.state["kind"])
+    }
+
+    private fun fake(name: String, marker: String) {
+        File(root, "sbin").mkdirs()
+        val f = File(root, "sbin/$name")
+        f.writeText("#!/bin/sh\necho \"\$@\" > ${root.path}/$marker\n")
+        f.setExecutable(true)
+    }
+
+    private fun waitFor(f: File): Boolean {
+        val end = System.currentTimeMillis() + 5000
+        while (!f.exists() && System.currentTimeMillis() < end) Thread.sleep(50)
+        return f.exists()
+    }
+
+    @Test
+    fun withoutShutdownTheHmiIsAskedToRestartTheWayTheInstallGuideDoes() {
+        fake("OnOffDSICommander", "app-asked")
+        val r = run()
+        assertTrue(r.error ?: "", r.success)
+        assertEquals("hmi", r.state["kind"])
+        assertTrue(waitFor(File(root, "app-asked")))
+        assertEquals("appreset", File(root, "app-asked").readText().trim())
+    }
+
+    @Test
+    fun whenBothAreThereTheWholeHeadUnitIsRestartedAndTheHmiIsLeftAlone() {
+        fake("shutdown", "asked")
+        fake("OnOffDSICommander", "app-asked")
+        val r = run()
+        assertEquals("full", r.state["kind"])
+        assertTrue(waitFor(File(root, "asked")))
+        Thread.sleep(300)
+        assertFalse(File(root, "app-asked").exists())
     }
 
     @Test
@@ -60,5 +95,6 @@ class HuRestartTest {
         assertFalse(r.success)
         assertEquals(HuRestart.NO_COMMAND, r.error)
         assertTrue(HuRestart.NO_COMMAND.contains("power button"))
+        assertTrue(r.state["kind"] == null)
     }
 }
