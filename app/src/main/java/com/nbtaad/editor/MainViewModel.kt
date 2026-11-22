@@ -32,6 +32,7 @@ import com.nbtaad.editor.log.exportName
 import com.nbtaad.editor.log.saveTo
 import com.nbtaad.editor.log.start
 import com.nbtaad.editor.net.CarDetector
+import com.nbtaad.editor.net.HeadUnitWatch
 import com.nbtaad.editor.net.CarNet
 import com.nbtaad.editor.net.CarNetLogic
 import com.nbtaad.editor.net.CarWifi
@@ -121,6 +122,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         ctx, viewModelScope, host = { detect.hu }, rescan = { rescanForHost() }, problem = { scanProblem },
         daemonVersion = { inst.unit?.installedVersion },
     )
+
+    /**
+     * The live look at the head unit's SSH for the pages that need it (the tile, the menu look): it says what is wrong when
+     * the packet filter blocks the phone, and keeps the page's buttons off until SSH answers.
+     */
+    val watch = HeadUnitWatch(ctx) { detect.hu }
+
+    /** The live look turned green: read the head unit if that is not done yet, so that the page can act on it. */
+    fun onSshGreen() {
+        if (inst.unit == null && !inst.unitBusy) inst.readUnit()
+    }
 
     /** The page the tile page was opened from, for its back button. */
     private var tileFrom = Screen.EXPERIMENTAL

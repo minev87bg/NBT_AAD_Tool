@@ -55,7 +55,7 @@ fun TileScreen(vm: MainViewModel) {
     if (tile.askRemove) RemoveAsk(tile)
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val noCar = inst.noUnit
-    val canAct = !tile.working && !noCar
+    val canAct = !tile.working && !noCar && vm.watch.green
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         Spacer(Modifier.height(52.dp))
@@ -72,6 +72,8 @@ fun TileScreen(vm: MainViewModel) {
             OutlinedButton(onClick = { vm.chooseAddOns() }, modifier = Modifier.padding(top = 12.dp)) { Text("GO TO ADD-ONS") }
             return@Column
         }
+
+        HeadUnitGate(vm, paused = tile.working)
 
         // the file
         Box2(Modifier.padding(top = 14.dp)) {

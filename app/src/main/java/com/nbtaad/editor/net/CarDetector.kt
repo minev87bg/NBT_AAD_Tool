@@ -204,7 +204,7 @@ object CarDetector {
         return null
     }
 
-    private fun probe(host: String, port: Int, timeoutMs: Int): PortState? = try {
+    internal fun probe(host: String, port: Int, timeoutMs: Int): PortState? = try {
         Socket().use { it.connect(InetSocketAddress(host, port), timeoutMs) }
         PortState.OPEN
     } catch (e: java.net.ConnectException) {
@@ -231,7 +231,7 @@ object CarDetector {
 
     fun sshOpen(ip: String): Boolean = probe(ip, SSH_PORT, 2000) == PortState.OPEN
 
-    private fun banner(ip: String): String? = try {
+    internal fun banner(ip: String): String? = try {
         Socket().use { s ->
             s.connect(InetSocketAddress(ip, SSH_PORT), 1500)
             s.soTimeout = 1500

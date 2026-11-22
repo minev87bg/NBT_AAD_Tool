@@ -65,7 +65,7 @@ fun MenuLookScreen(vm: MainViewModel) {
     if (m.askRestore) RestoreAsk(m)
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val noCar = inst.noUnit
-    val canAct = !m.working && !noCar
+    val canAct = !m.working && !noCar && vm.watch.green
     var pending by remember { mutableStateOf<String?>(null) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         val rel = pending
@@ -103,6 +103,8 @@ fun MenuLookScreen(vm: MainViewModel) {
             OutlinedButton(onClick = { vm.chooseAddOns() }, modifier = Modifier.padding(top = 12.dp)) { Text("GO TO ADD-ONS") }
             return@Column
         }
+
+        HeadUnitGate(vm, paused = m.working)
 
         MlBox(Modifier.padding(top = 14.dp)) {
             Text(s.kit.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
