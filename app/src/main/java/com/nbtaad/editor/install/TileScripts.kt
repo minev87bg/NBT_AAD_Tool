@@ -32,6 +32,12 @@ object TileScripts {
 
     enum class Action(val word: String) { STATUS("status"), TEST("test"), INSTALL("install"), REMOVE("remove") }
 
+    /**
+     * The library path the car's own programs are started with (Sq00ky's mmr_launch.cpp has it from the car's Connectivity.cfg),
+     * with the folder of the car's connection libraries first. The program is started with it, as an SSH login has none.
+     */
+    const val LIBRARY_PATH = "/opt/sys/lib:/opt/core/lib:/opt/car/lib:/opt/os/lib:/opt/conn/lib:/boot/lib:/lib:/usr/lib:/lib/graphics/omap5430"
+
     /** How long the test run keeps the tile on the iDrive (the program's own time limit, as in the author's test-ram.sh). */
     const val TEST_SECONDS = 120
 
@@ -141,6 +147,7 @@ object TileScripts {
             LS=$launcherSize
             HS=$hookSize
             SEC=$TEST_SECONDS
+            LIBPATH=$LIBRARY_PATH
             echo "JOB ${action.word}"
         """
         return sh(head + "\n" + COMMON + "\n" + body(action).replace("¤NO_CARLIFE_TEXT", NO_CARLIFE) + "\nexit 0")
@@ -197,13 +204,25 @@ object TileScripts {
         # the stage is not executable: copy a program (its execute bit stays), then write the file's content over it
         cp /bin/ls ¤P && cat ¤S/aa-tile > ¤P || { rm -f ¤P; fail "Cannot copy aa-tile into RAM."; }
         [ "¤(size ¤P)" = "¤PS" ] || { rm -f ¤P; fail "The copy of aa-tile in RAM has the wrong size."; }
+        # a login over SSH has no library path of its own, and the program loads the head unit's display library by name
+        # (libsys_dsi_colibry), which needs the car's other libraries: it gets the list the car's own programs are started with
+        LP=¤LIBPATH¤{LD_LIBRARY_PATH:+:¤LD_LIBRARY_PATH}
         echo "RUN ¤MODE ¤SEC"
-        ¤P ¤MODE ¤SEC > ¤L 2>&1
+        LD_LIBRARY_PATH=¤LP ¤P ¤MODE ¤SEC > ¤L 2>&1
         RC=¤?
         echo "LOG-BEGIN"
         cat ¤L 2>/dev/null
         echo "LOG-END"
         echo "RC ¤RC"
+        if [ ¤RC -eq 1 ]; then
+          echo "INFO The program could not start. What this head unit has of its display library:"
+          echo "INFO library path the program had: ¤LP"
+          for d in sys core car os conn; do
+            if [ -d ¤R/opt/¤d/lib ]; then echo "INFO folder /opt/¤d/lib is there"; else echo "INFO folder /opt/¤d/lib is not there"; fi
+          done
+          ls -l ¤R/opt/sys/lib 2>&1 | grep -i dsi | while read l; do echo "INFO file: ¤l"; done
+          LD_LIBRARY_PATH=¤LP ldd ¤R/opt/sys/lib/libsys_dsi_colibry.cpp-ne.so.8 2>&1 | while read l; do echo "INFO ldd: ¤l"; done
+        fi
         rm -f ¤P ¤L
         echo "END 0"
     """.trimIndent()

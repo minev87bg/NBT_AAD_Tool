@@ -267,6 +267,28 @@ class TileScriptsTest {
         assertTrue(onDisk.contains("on -f /net/hu-omap/ /bin/sh /fs/ram5/${TileScripts.STAGE_DIR}/job.sh /fs/ram5/${TileScripts.STAGE_DIR}"))
     }
 
+    @Test
+    fun theProgramIsStartedWithTheCarsLibraryPathAndAFailedStartIsDescribed() {
+        val failing = ("#!/bin/sh\necho \"path: \$LD_LIBRARY_PATH\"\n" +
+            "echo \"[dsi] dlopen /opt/sys/lib/libsys_dsi_colibry.cpp-ne.so.8 -> Library cannot be found\"\nexit 1\n").toByteArray()
+        File(root, "stage/aa-tile").writeBytes(failing)
+        val r = run(TileScripts.Action.TEST, programSize = failing.size)
+        assertEquals(1, r.rc)
+        assertTrue(r.log, r.log.contains("path: ${TileScripts.LIBRARY_PATH}"))
+        assertTrue(r.info.toString(), r.info.any { it.startsWith("The program could not start") })
+        assertTrue(r.info.toString(), r.info.any { it == "folder /opt/sys/lib is not there" })
+        assertTrue(r.info.toString(), r.info.any { it.startsWith("library path the program had: ${TileScripts.LIBRARY_PATH}") })
+        // the library path is the program's only: the job's own shell keeps what it had
+        assertTrue(TileScripts.LIBRARY_PATH.startsWith("/opt/sys/lib:"))
+    }
+
+    @Test
+    fun aProgramThatStartsIsNotFollowedByTheDescriptionOfTheLibrary() {
+        val r = run(TileScripts.Action.TEST)
+        assertEquals(0, r.rc)
+        assertFalse(r.info.toString(), r.info.any { it.contains("display library") })
+    }
+
     // ---- the login's search for room in hu-omap's RAM ----
 
     private class Places(val hop: File, val own: File)

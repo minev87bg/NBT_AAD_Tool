@@ -152,6 +152,8 @@ class TileController(
                     if (good) "Test passed" else "Test failed",
                     listOf(TileScripts.exitMeaning(r.rc)) + lines, r.log,
                     if (good) "Did the tile show in the iDrive main menu, and did pressing it bring Android Auto back? Then install it."
+                    else if (r.rc == 1 && r.log.contains("cannot be found", ignoreCase = true))
+                        "The program could not load the head unit's display library (libsys_dsi_colibry). The lines above say what this head unit has of it: keep the log and send it."
                     else if (r.rc == 2) "Start Android Auto on the phone first and run the test again."
                     else "Keep the log. Do not install it."
                 )
