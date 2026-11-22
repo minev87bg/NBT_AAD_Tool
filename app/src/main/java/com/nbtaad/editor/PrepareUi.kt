@@ -119,13 +119,33 @@ fun PrepareScreen(vm: MainViewModel) {
         }
 
         Spacer(Modifier.height(24.dp))
+        Text("What Android Auto needs coded", fontSize = 15.sp, fontWeight = FontWeight.Medium)
         Text(
-            "Checking and changing the head unit's own coding, over the same Ethernet gateway, is coming next.",
-            fontSize = 11.sp, color = muted,
+            "Sq00ky's own project lists these as the head unit coding Android Auto needs; without them the car can " +
+                "refuse the phone's link outright. Checking and setting them here, over the same Ethernet gateway and " +
+                "without touching the Vehicle Order, is coming next.",
+            fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
         )
+        for (item in CODING_REQUIREMENTS) {
+            Column(Modifier.padding(top = 10.dp)) {
+                Text(item.group, fontSize = 11.sp, color = muted, fontWeight = FontWeight.Medium)
+                for (bit in item.bits) {
+                    Text("$bit → AKTIV", fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
+                }
+            }
+        }
         Spacer(Modifier.height(32.dp))
     }
 }
+
+/** One coding group from Sq00ky's own coding-requirements.md, and the bits in it that must be AKTIV. */
+private class CodingGroup(val group: String, val bits: List<String>)
+
+private val CODING_REQUIREMENTS = listOf(
+    CodingGroup("3000 HMI", listOf("REMOTE_HMI", "A4A", "A4A_REMOTE_APS")),
+    CodingGroup("3002 AUDIO_TUNER_TRAFFIC", listOf("A4A_ANDROID")),
+    CodingGroup("3003 TELEFON_TELEMATIK_ONLINE", listOf("A4A_WIRELESS_ANDROID")),
+)
 
 @Composable
 private fun StatusRow(label: String, value: String?, found: Boolean) {
