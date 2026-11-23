@@ -206,6 +206,9 @@ object CodingWrite {
      * action run once the head unit a write or revert just reset is back. See [Hsfz.clearAllCarFaults]. */
     fun clearAllCarFaults(zgwIp: String): List<WriteStep> = Hsfz.clearAllCarFaults(zgwIp)
 
+    /** "Clear DTC" narrowed to the head unit alone, point-to-point — see [Hsfz.clearHeadUnitFaults]. */
+    fun clearHeadUnitFaults(zgwIp: String): List<WriteStep> = Hsfz.clearHeadUnitFaults(zgwIp)
+
     /** How many DTCs the head unit itself currently has stored — see [Hsfz.readHeadUnitDtcCount]. */
     fun headUnitDtcCount(zgwIp: String): Int? = Hsfz.readHeadUnitDtcCount(zgwIp)
 

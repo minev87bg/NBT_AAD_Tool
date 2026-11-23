@@ -25,6 +25,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -100,17 +101,19 @@ fun PrepareScreen(vm: MainViewModel) {
         ) { Text(if (vm.codingChecking) "CHECKING…" else "CHECK CODINGS") }
         if (vm.codingChecking) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
 
-        val results = vm.codingResults
-        if (results == null) {
-            if (!vm.codingChecking) {
-                Text("Not checked yet.", fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 8.dp))
-            }
-        } else {
+        if (vm.codingResults != null || !vm.codingChecking) {
+            // UNKNOWN covers both "never checked" and "the last check couldn't read every bit cleanly" -
+            // a failed read is not evidence a coding is unset, so neither one renders as a NOT SET verdict;
+            // both get the same bold weight, since either way the real answer is to tap CHECK CODINGS.
             Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    if (vm.codingAllSet) "CODING PASSED" else "CODINGS NOT SET",
+                    when (vm.codingCheckState) {
+                        MainViewModel.CodingCheckState.PASSED -> "CODING PASSED"
+                        MainViewModel.CodingCheckState.NOT_SET -> "CODINGS NOT SET"
+                        MainViewModel.CodingCheckState.UNKNOWN -> "CODING STATUS UNKNOWN"
+                    },
                     fontSize = 20.sp, fontWeight = FontWeight.Bold,
-                    color = if (vm.codingAllSet) Green else Red,
+                    color = if (vm.codingCheckState == MainViewModel.CodingCheckState.PASSED) Green else Red,
                 )
                 Spacer(Modifier.width(8.dp))
                 InfoBadge(onClick = { vm.showCodingDetail = true })
@@ -195,6 +198,20 @@ fun PrepareScreen(vm: MainViewModel) {
                         "The head unit will reset once this is written. The backup just read can revert this at any time.",
                         fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 10.dp),
                     )
+                    Text("Clear DTC?", fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 14.dp))
+                    for ((choice, label) in listOf(
+                        MainViewModel.ClearDtcChoice.DONT to "Don't",
+                        MainViewModel.ClearDtcChoice.HEAD_UNIT_ONLY to "Only HeadUnit",
+                        MainViewModel.ClearDtcChoice.WHOLE_VEHICLE to "Whole Vehicle",
+                    )) {
+                        Row(
+                            Modifier.fillMaxWidth().clickable { vm.clearDtcChoice = choice },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(selected = vm.clearDtcChoice == choice, onClick = { vm.clearDtcChoice = choice })
+                            Text(label, fontSize = 13.sp)
+                        }
+                    }
                 }
             },
             confirmButton = { TextButton(onClick = { vm.applyAaCoding() }) { Text("WRITE") } },
@@ -318,8 +335,7 @@ private fun WriteCodingSection(vm: MainViewModel) {
     Text("Write coding", fontSize = 15.sp, fontWeight = FontWeight.Medium)
     Text(
         "Reads a fresh BackUp of the HeadUnit and then You can write whatever is not set from the required " +
-            "coding parameters to the it. After write the codes will be cleared. Since SSH is open you " +
-            "should expect a DTC for that.",
+            "coding parameters to it.",
         fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
     )
     OutlinedButton(

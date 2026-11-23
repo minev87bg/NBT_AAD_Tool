@@ -212,38 +212,7 @@ object Hsfz {
                 s.soTimeout = 1200
                 for ((label, uds) in macro) {
                     AppLog.d("HSFZ", "-> (broadcast) ${uds.toHexSpaced()}")
-                    s.getOutputStream().write(diagFrame(TESTER_BROADCAST, BROADCAST_ALL, uds))
-                    s.getOutputStream().flush()
-                    var negativeNrc: Int? = null
-                    var sawPositive = false
-                    var deadline = System.currentTimeMillis() + 1200
-                    // A real fault-memory erase can take the ECU well past the usual wait, so NRC 0x78
-                    // ("request received, response pending") isn't a rejection - it's the ECU asking for
-                    // more time. Keep listening instead of recording it as a failure, but not forever.
-                    val hardDeadline = System.currentTimeMillis() + 6000
-                    while (System.currentTimeMillis() < deadline) {
-                        val f = readFrame(s.getInputStream()) ?: break
-                        if (f.type != CW_DIAG || f.payload.size < 3) continue
-                        val resp = f.payload.copyOfRange(2, f.payload.size)
-                        if (resp.isEmpty()) continue
-                        if ((resp[0].toInt() and 0xFF) == 0x7F) {
-                            val nrc = if (resp.size >= 3) resp[2].toInt() and 0xFF else -1
-                            if (nrc == 0x78 && System.currentTimeMillis() < hardDeadline) {
-                                deadline = System.currentTimeMillis() + 1200
-                                continue
-                            }
-                            negativeNrc = nrc
-                        } else {
-                            sawPositive = true
-                        }
-                    }
-                    steps.add(
-                        when {
-                            negativeNrc != null -> WriteStep(label, false, "rejected (NRC 0x%02X)".format(negativeNrc))
-                            sawPositive -> WriteStep(label, true, "OK")
-                            else -> WriteStep(label, true, "sent (broadcast - no reply expected)")
-                        },
-                    )
+                    steps.add(sendClearStep(s, TESTER_BROADCAST, BROADCAST_ALL, label, uds, expectReply = false))
                 }
             }
         } catch (e: Exception) {
@@ -251,6 +220,75 @@ object Hsfz {
             steps.add(WriteStep("Connect", false, e.message ?: e.javaClass.simpleName))
         }
         return steps
+    }
+
+    /**
+     * Clears just the head unit's own fault memory - the same two core UDS requests [clearAllCarFaults]
+     * sends (ClearDiagnosticInformation, then BMW's own "info memory" routine-control step), but addressed
+     * directly to [HEAD_UNIT] (point-to-point, not broadcast) and without that macro's extra ZFS-DM
+     * lock/clear/unlock steps, since those are a vehicle-wide energy-state dance, not something a single
+     * ECU's own DTC clear needs.
+     */
+    fun clearHeadUnitFaults(zgwIp: String): List<WriteStep> {
+        val macro = listOf(
+            "Clear DTC" to byteArrayOf(0x14, 0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte()),
+            "Clear info memory" to byteArrayOf(0x31, 0x01, 0x0F, 0x06),
+        )
+        val steps = mutableListOf<WriteStep>()
+        try {
+            Socket().use { s ->
+                s.tcpNoDelay = true
+                s.connect(InetSocketAddress(zgwIp, TCP_PORT), 3000)
+                s.soTimeout = 1200
+                for ((label, uds) in macro) {
+                    AppLog.d("HSFZ", "-> ${uds.toHexSpaced()}")
+                    steps.add(sendClearStep(s, TESTER, HEAD_UNIT, label, uds, expectReply = true))
+                }
+            }
+        } catch (e: Exception) {
+            AppLog.e("HSFZ", "Clearing the head unit's own faults failed", e)
+            steps.add(WriteStep("Connect", false, e.message ?: e.javaClass.simpleName))
+        }
+        return steps
+    }
+
+    /**
+     * Sends one UDS request and waits for its real response, extending the wait on NRC 0x78 ("still
+     * working") instead of treating it as a rejection - this ECU acks almost everything with 0x78 before
+     * the real answer, so without this every clear would misreport as failed. [expectReply] only changes
+     * the "nothing came back" verdict's wording: true for a normal point-to-point request (a head unit
+     * that never answers at all is worth a clear "no reply" note), false for a broadcast one, where no
+     * reply is the ordinary case and not a sign anything went wrong.
+     */
+    private fun sendClearStep(s: Socket, src: Int, dst: Int, label: String, uds: ByteArray, expectReply: Boolean): WriteStep {
+        s.getOutputStream().write(diagFrame(src, dst, uds))
+        s.getOutputStream().flush()
+        var negativeNrc: Int? = null
+        var sawPositive = false
+        var deadline = System.currentTimeMillis() + 1200
+        val hardDeadline = System.currentTimeMillis() + 6000
+        while (System.currentTimeMillis() < deadline) {
+            val f = readFrame(s.getInputStream()) ?: break
+            if (f.type != CW_DIAG || f.payload.size < 3) continue
+            val resp = f.payload.copyOfRange(2, f.payload.size)
+            if (resp.isEmpty()) continue
+            if ((resp[0].toInt() and 0xFF) == 0x7F) {
+                val nrc = if (resp.size >= 3) resp[2].toInt() and 0xFF else -1
+                if (nrc == 0x78 && System.currentTimeMillis() < hardDeadline) {
+                    deadline = System.currentTimeMillis() + 1200
+                    continue
+                }
+                negativeNrc = nrc
+            } else {
+                sawPositive = true
+            }
+        }
+        return when {
+            negativeNrc != null -> WriteStep(label, false, "rejected (NRC 0x%02X)".format(negativeNrc))
+            sawPositive -> WriteStep(label, true, "OK")
+            expectReply -> WriteStep(label, false, "no reply")
+            else -> WriteStep(label, true, "sent (broadcast - no reply expected)")
+        }
     }
 
     /** Reads the VIN from the ZGW (UDS 22 F190). Used only when the UDP discovery gave no VIN. */

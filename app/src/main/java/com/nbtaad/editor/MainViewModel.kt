@@ -546,16 +546,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun applyResult(r: DetectResult) {
+    /**
+     * [showNextHint] is false from [checkCodings] - that reuses this same detect+apply step to refresh
+     * ZGW/SSH/VIN, but Prepare headunit has no NEXT button, so the "Press NEXT." instruction it's written
+     * for would be meaningless there (and was leaking onto that page on every CHECK CODINGS tap).
+     */
+    private fun applyResult(r: DetectResult, showNextHint: Boolean = true) {
         AppLog.i("Detect", "Applied: gateway ${r.zgwIp}, VIN ${r.vin}, head unit ${r.huIp}, SSH ${r.sshOpen}, problem ${r.problem}")
         detect = DetectState(r.zgwIp != null || r.viaCarWifi, r.zgwIp, r.huIp, r.vin, r.sshOpen, r.viaCarWifi, r.pfBlocked)
         feedbackError = false
+        val nextHint = if (showNextHint) " Press NEXT." else ""
         feedback = when {
             r.pfBlocked -> {
                 feedbackError = true
                 r.problem ?: HeadUnitLight.PF_PROBLEM
             }
-            r.viaCarWifi && r.sshOpen -> "Connected through the car's Android Auto WiFi (no car gateway needed). SSH is open. Press NEXT."
+            r.viaCarWifi && r.sshOpen -> "Connected through the car's Android Auto WiFi (no car gateway needed). SSH is open.$nextHint"
             r.viaCarWifi -> {
                 feedbackError = true
                 r.problem ?: "The head unit answers over the car's WiFi, but SSH did not work. Press DETECT CAR again."
@@ -564,7 +570,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 feedbackError = true
                 r.problem ?: "No car detected."
             }
-            r.huIp != null && r.sshOpen -> "Car found. SSH is open. Press NEXT."
+            r.huIp != null && r.sshOpen -> "Car found. SSH is open.$nextHint"
             r.huIp != null -> "Car found, but SSH (port 22) is closed. Use the reset button next to the red dot."
             else -> "Car found, but no head unit with SSH was found. Use the reset button or set the IPs manually."
         }
@@ -880,9 +886,25 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Set when SHOW LOG (the last write/revert) is tapped. */
     var showCodingWriteLog by mutableStateOf(false)
 
-    /** True once every coding bit CHECK CODINGS looked at reads back SET; null results count as not passed. */
-    val codingAllSet: Boolean
-        get() = codingResults?.isNotEmpty() == true && codingResults!!.all { it.status == com.nbtaad.editor.net.CodingStatus.SET }
+    /** The Prepare page's big PASSED/NOT SET/STATUS UNKNOWN banner. */
+    enum class CodingCheckState { UNKNOWN, PASSED, NOT_SET }
+
+    /**
+     * UNKNOWN covers both "never checked" and "the last check couldn't actually read every bit" (the
+     * head unit answering with a UDS rejection, usually because it's still booting after a reset) - a
+     * failed read is not evidence a coding is unset, so it must never render as a NOT SET verdict, and
+     * both cases get the same visual weight to invite a CHECK CODINGS tap.
+     */
+    val codingCheckState: CodingCheckState
+        get() {
+            val r = codingResults
+            return when {
+                r.isNullOrEmpty() -> CodingCheckState.UNKNOWN
+                r.any { it.status == com.nbtaad.editor.net.CodingStatus.UNREADABLE } -> CodingCheckState.UNKNOWN
+                r.all { it.status == com.nbtaad.editor.net.CodingStatus.SET } -> CodingCheckState.PASSED
+                else -> CodingCheckState.NOT_SET
+            }
+        }
 
     /**
      * "Check codings": used to just read the AA coding bits; reaching this page already means the
@@ -900,7 +922,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 NetworkBinder.bindToLocalNetwork(ctx)
                 val r = detectCar { feedback = it }
-                applyResult(r)
+                applyResult(r, showNextHint = false)
                 val ip = detect.zgw
                 codingResults = if (ip != null) com.nbtaad.editor.net.CodingCheck.checkAll(ip) else null
             } catch (e: Exception) {
@@ -932,6 +954,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var dtcCountBeforeWrite by mutableStateOf<Int?>(null)
     /** Set when WRITE CODING is tapped, to show the confirmation dialog; cleared on either answer. */
     var confirmWriteCoding by mutableStateOf(false)
+
+    /** The write dialog's "Clear DTC?" choice: what [applyAaCoding] clears once the write is confirmed back. */
+    enum class ClearDtcChoice { DONT, HEAD_UNIT_ONLY, WHOLE_VEHICLE }
+    /** Remembers the last choice across writes, since a test session usually repeats the same one. */
+    var clearDtcChoice by mutableStateOf(ClearDtcChoice.WHOLE_VEHICLE)
     /** Read-only SecurityAccess level probe (PROBE SECURITYACCESS) - never sends a key, nothing is unlocked or written. */
     var probingSecurityAccess by mutableStateOf(false)
     var securityAccessProbeLog by mutableStateOf<List<com.nbtaad.editor.net.WriteStep>?>(null)
@@ -1113,15 +1140,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         get() = codingBackup?.mem != null && detect.vin != null && codingFixes.isNotEmpty() && !codingBusy
 
     /**
-     * Runs "clear all DTCs" (the whole-car broadcast macro) and appends its steps to [codingWriteLog]
-     * so SHOW LOG covers it too. Returns a short sentence to tack onto [feedback]: the head unit's own
-     * before/after DTC count when both are readable (the [dtcCountBeforeWrite] snapshot READ BACKUP
-     * took, and a fresh read now), otherwise just whether the clear itself went through. Called from
-     * [applyAaCoding] and [revertCoding] only after the head unit is confirmed back - never right after
-     * the reset is sent.
+     * Runs the write dialog's "Clear DTC?" choice ([choice] - none, head-unit-only, or the whole-car
+     * broadcast macro, see [ClearDtcChoice]) and appends its steps to [codingWriteLog] so SHOW LOG
+     * covers it too. Returns a short sentence to tack onto [feedback]: the head unit's own before/after
+     * DTC count when both are readable (the [dtcCountBeforeWrite] snapshot READ BACKUP took, and a fresh
+     * read now), otherwise just whether the clear itself went through - or nothing at all for DONT.
+     * Called from [applyAaCoding] and [revertCoding] only once the head unit is confirmed back - never
+     * right after the reset is sent.
      */
-    private fun clearCarFaultsAndDescribe(ip: String): String {
-        val steps = com.nbtaad.editor.net.CodingWrite.clearAllCarFaults(ip)
+    private fun clearCarFaultsAndDescribe(ip: String, choice: ClearDtcChoice): String {
+        if (choice == ClearDtcChoice.DONT) return ""
+        val scope = if (choice == ClearDtcChoice.HEAD_UNIT_ONLY) "the head unit's" else "the car's"
+        val steps = if (choice == ClearDtcChoice.HEAD_UNIT_ONLY) {
+            com.nbtaad.editor.net.CodingWrite.clearHeadUnitFaults(ip)
+        } else {
+            com.nbtaad.editor.net.CodingWrite.clearAllCarFaults(ip)
+        }
         codingWriteLog = (codingWriteLog ?: emptyList()) + steps
         for (s in steps) {
             if (s.ok) AppLog.i("Coding", "Clear faults - ${s.name}: ${s.detail}") else AppLog.w("Coding", "Clear faults - ${s.name}: ${s.detail}")
@@ -1129,10 +1163,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val before = dtcCountBeforeWrite
         val after = com.nbtaad.editor.net.CodingWrite.headUnitDtcCount(ip)
         return when {
-            steps.any { !it.ok } -> " Couldn't fully clear the car's fault memory - see the log."
-            before != null && after != null -> " Cleared the car's fault memory (head unit: $before → $after)."
-            else -> " Cleared the car's fault memory."
+            steps.any { !it.ok } -> " Couldn't fully clear $scope fault memory - see the log."
+            before != null && after != null -> " Cleared $scope fault memory (head unit: $before → $after)."
+            else -> " Cleared $scope fault memory."
         }
+    }
+
+    /**
+     * Polls the head unit's SSH port (up to [timeoutMs]) so the post-write/revert re-check waits for the
+     * ECU to actually be alive again instead of guessing with a fixed delay - checking too soon is what
+     * made CHECK CODINGS misreport a plain read failure as "codings didn't pass" right after a write.
+     * Returns true once SSH answers, false if it gave up waiting.
+     */
+    private suspend fun waitForHeadUnitAlive(timeoutMs: Long = 40_000): Boolean {
+        val hu = detect.hu ?: return true // no known address to probe - nothing to wait for
+        delay(4000) // it can't possibly be back any sooner than this
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (CarDetector.sshOpen(hu)) return true
+            delay(1500)
+        }
+        return false
     }
 
     /** WRITE CODING, after the person has confirmed: re-signs the backup with the fixes applied and writes it through. */
@@ -1160,27 +1211,33 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     // That backup predates this write, so it no longer matches the car - clear it so REVERT TO
                     // BACKUP can't undo this write by accident, and READ BACKUP fetches a fresh one when wanted.
                     codingBackup = null
-                    feedback = "Wrote ${fixes.size} coding bit(s). Waiting for the head unit to reset, then re-checking…"
+                    feedback = "Wrote ${fixes.size} coding bit(s). Waiting for the head unit to come back online…"
                     feedbackError = false
-                    delay(6000)
-                    codingResults = try {
-                        com.nbtaad.editor.net.CodingCheck.checkAll(ip)
-                    } catch (e: Exception) {
-                        AppLog.w("Coding", "Auto re-check after the write failed: ${e.message}")
-                        null
-                    }
-                    // Only now, with the head unit confirmed back (the re-check above just talked to it) -
-                    // not right after the reset was sent - is it safe to assume it's listening on the bus
-                    // again for the whole-car fault-memory clear to actually reach it.
-                    val faultsNote = clearCarFaultsAndDescribe(ip)
-                    feedback = (
-                        if (codingAllSet) {
-                            "Wrote ${fixes.size} coding bit(s) - confirmed set."
-                        } else {
-                            "Wrote ${fixes.size} coding bit(s), but the re-check doesn't show them all set yet - give the head unit a moment and tap CHECK CODINGS."
+                    if (waitForHeadUnitAlive()) {
+                        codingResults = try {
+                            com.nbtaad.editor.net.CodingCheck.checkAll(ip)
+                        } catch (e: Exception) {
+                            AppLog.w("Coding", "Auto re-check after the write failed: ${e.message}")
+                            null
                         }
-                        ) + faultsNote
-                    feedbackError = !codingAllSet
+                        // Only now, with the head unit confirmed back - not right after the reset was
+                        // sent - is it safe to assume it's listening on the bus again for the clear to
+                        // actually reach it.
+                        val faultsNote = clearCarFaultsAndDescribe(ip, clearDtcChoice)
+                        feedback = (
+                            when (codingCheckState) {
+                                CodingCheckState.PASSED -> "Wrote ${fixes.size} coding bit(s) - confirmed set."
+                                CodingCheckState.NOT_SET -> "Wrote ${fixes.size} coding bit(s), but the re-check doesn't show them all set yet - give the head unit a moment and tap CHECK CODINGS."
+                                CodingCheckState.UNKNOWN -> "Wrote ${fixes.size} coding bit(s), but couldn't read them back cleanly to confirm - give the head unit a moment and tap CHECK CODINGS."
+                            }
+                            ) + faultsNote
+                        feedbackError = codingCheckState != CodingCheckState.PASSED
+                    } else {
+                        codingResults = null
+                        feedback = "Wrote ${fixes.size} coding bit(s), but the head unit's SSH never came back on its own - " +
+                            "give it a moment, then tap CHECK CODINGS once it's reachable again."
+                        feedbackError = true
+                    }
                 } else {
                     feedback = "The write stopped partway (see the log) - nothing further was sent."
                     feedbackError = true
@@ -1213,19 +1270,25 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 if (outcome.success) {
                     // Unlike a write, the backup is still accurate afterward - it's exactly what was just written back.
-                    feedback = "Reverted to the backup. Waiting for the head unit to reset, then re-checking…"
+                    feedback = "Reverted to the backup. Waiting for the head unit to come back online…"
                     feedbackError = false
-                    delay(6000)
-                    codingResults = try {
-                        com.nbtaad.editor.net.CodingCheck.checkAll(ip)
-                    } catch (e: Exception) {
-                        AppLog.w("Coding", "Auto re-check after the revert failed: ${e.message}")
-                        null
+                    if (waitForHeadUnitAlive()) {
+                        codingResults = try {
+                            com.nbtaad.editor.net.CodingCheck.checkAll(ip)
+                        } catch (e: Exception) {
+                            AppLog.w("Coding", "Auto re-check after the revert failed: ${e.message}")
+                            null
+                        }
+                        // Same reasoning as applyAaCoding(): wait for the head unit to be confirmed back first.
+                        val faultsNote = clearCarFaultsAndDescribe(ip, clearDtcChoice)
+                        feedback = "Reverted to the backup." + faultsNote
+                        feedbackError = false
+                    } else {
+                        codingResults = null
+                        feedback = "Reverted to the backup, but the head unit's SSH never came back on its own - " +
+                            "give it a moment, then tap CHECK CODINGS once it's reachable again."
+                        feedbackError = true
                     }
-                    // Same reasoning as applyAaCoding(): wait for the head unit to be confirmed back first.
-                    val faultsNote = clearCarFaultsAndDescribe(ip)
-                    feedback = "Reverted to the backup." + faultsNote
-                    feedbackError = false
                 } else {
                     feedback = "The revert stopped partway (see the log)."
                     feedbackError = true
