@@ -128,6 +128,12 @@ object CodingWrite {
                 }
                 steps.add(WriteStep("Confirm VIN", true, vin))
 
+                // Best-effort: if an earlier attempt left the ECU in a non-default session (it only
+                // times out on its own after a few seconds — closing our socket doesn't reset it),
+                // a fresh "enter extended session" right after can be rejected with NRC 0x22
+                // (conditionsNotCorrect). Ask for default session first; never gates on the answer.
+                steps.add(describeOutcome("Return to default session", session.enterSession(0x01)))
+
                 val ext = session.enterSession(0x03)
                 steps.add(describeOutcome("Enter extended session", ext))
                 if (ext !is Hsfz.CodingSession.Outcome.Positive) return WriteOutcome(steps, false, null)
@@ -208,6 +214,10 @@ object CodingWrite {
                     return steps
                 }
                 steps.add(WriteStep("Confirm VIN", true, vin))
+
+                // Best-effort, see the same step in writeCoding(): clears a session an earlier
+                // attempt (this probe included) may have left the ECU in.
+                steps.add(describeOutcome("Return to default session", session.enterSession(0x01)))
 
                 val ext = session.enterSession(0x03)
                 steps.add(describeOutcome("Enter extended session", ext))
