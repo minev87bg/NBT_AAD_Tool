@@ -39,6 +39,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nbtaad.editor.addon.ShelfItem
 import com.nbtaad.editor.experimental.ExperimentalController
 import com.nbtaad.editor.install.Described
 import com.nbtaad.editor.install.HeadUnit
@@ -97,7 +98,7 @@ fun HubScreen(vm: MainViewModel) {
         Spacer(Modifier.height(12.dp))
         HeroTile(
             title = "Install / update",
-            subtitle = "NBT Android Auto" + vm.inst.shelf.count { it.installedAt == null }.let {
+            subtitle = "NBT Android Auto" + vm.inst.mainShelf.count { it.installedAt == null }.let {
                 if (it > 0) " · $it saved file${if (it == 1) "" else "s"} waiting" else ""
             },
             info = "Install or update the Android Auto daemon and plugin on the head unit, from Sq00ky's Releases page " +
@@ -305,6 +306,32 @@ internal fun DraftDialog(vm: MainViewModel) {
 // Install / update NBT Android Auto
 // =========================================================================
 
+/** A dimmer, less neon green than the app's usual accent, for this page only (the buttons were too loud). */
+internal val InstallGreen = Color(0xFF4C8F5C)
+
+/** This page's own theme, the way SettingsTheme, AddOnsTheme and PrepareTheme are each their own accent colour. */
+@Composable
+internal fun InstallTheme(content: @Composable () -> Unit) {
+    val base = MaterialTheme.colorScheme
+    val dark = base.background.luminance() < 0.5f
+    val scheme = if (dark) {
+        base.copy(
+            primary = InstallGreen, onPrimary = Color(0xFF0D1117),
+            primaryContainer = Color(0xFF1F3A27), onPrimaryContainer = Color(0xFFD7F5DD),
+            secondaryContainer = Color(0xFF1F3A27), onSecondaryContainer = Color(0xFFD7F5DD),
+            surfaceTint = InstallGreen,
+        )
+    } else {
+        base.copy(
+            primary = Color(0xFF3C6E49), onPrimary = Color.White,
+            primaryContainer = Color(0xFFD7F0DC), onPrimaryContainer = Color(0xFF0F3318),
+            secondaryContainer = Color(0xFFD7F0DC), onSecondaryContainer = Color(0xFF0F3318),
+            surfaceTint = Color(0xFF3C6E49),
+        )
+    }
+    MaterialTheme(colorScheme = scheme, content = content)
+}
+
 @Composable
 fun InstallScreen(vm: MainViewModel) {
     val inst = vm.inst
@@ -336,7 +363,7 @@ fun InstallScreen(vm: MainViewModel) {
             item(key = "__prep") { PrepStatus(inst) }
         }
         inst.view?.let { v -> item(key = "__package") { PackageCard(inst, v) } }
-        if (inst.shelf.isNotEmpty()) item(key = "__shelf") { ShelfCard(inst) }
+        if (inst.mainShelf.isNotEmpty()) item(key = "__shelf") { ShelfCard(inst, inst.mainShelf) }
 
         item(key = "__choose") {
             Column(Modifier.fillMaxWidth().padding(top = 20.dp)) {
@@ -422,40 +449,67 @@ private val ShelfDate = java.time.format.DateTimeFormatter.ofPattern("d MMM HH:m
 private fun shelfTime(ms: Long): String =
     java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneId.systemDefault()).format(ShelfDate)
 
-/** The files kept on the phone for later: pick one and it goes to the choice above, like a file just downloaded. */
+/** The files kept on the phone for later: a one-line notice; tap it for the list (pick one, or remove it). */
 @Composable
-private fun ShelfCard(inst: InstallController) {
+private fun ShelfCard(inst: InstallController, items: List<ShelfItem>) {
+    var open by remember { mutableStateOf(false) }
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    OutlinedCard(Modifier.fillMaxWidth().padding(top = 16.dp)) {
-        Column(Modifier.padding(12.dp)) {
-            Text("Saved on this phone", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-            Text(
-                "Files that were kept for when a head unit is connected. Nothing is installed until you choose one, press " +
-                    "INSTALL and confirm.",
-                fontSize = 11.sp,
-                color = muted,
-            )
-            for (item in inst.shelf) {
-                Column(Modifier.padding(top = 10.dp)) {
-                    Text(item.name, fontSize = 13.sp, fontFamily = FontFamily.Monospace, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        listOfNotNull(item.version, item.summary.ifBlank { null }, item.origin.ifBlank { null }).joinToString(" · "),
-                        fontSize = 11.sp,
-                        color = muted,
-                    )
-                    Text(
-                        "saved ${shelfTime(item.savedAt)}" + (item.installedAt?.let { " · installed ${shelfTime(it)}" } ?: ""),
-                        fontSize = 11.sp,
-                        color = if (item.installedAt != null) Green else muted,
-                    )
-                    Row {
-                        TextButton(onClick = { inst.useShelf(item) }, enabled = !inst.working && !inst.noUnit) { Text("CHOOSE", fontSize = 12.sp) }
-                        TextButton(onClick = { inst.removeFromShelf(item) }, enabled = !inst.working) { Text("REMOVE", fontSize = 12.sp) }
+    OutlinedCard(Modifier.fillMaxWidth().padding(top = 10.dp).clickable { open = true }) {
+        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "${items.size} saved file${if (items.size == 1) "" else "s"} on this phone",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text("Nothing is installed until you choose one", fontSize = 11.sp, color = muted)
+            }
+            Spacer(Modifier.width(8.dp))
+            Text("›", fontSize = 18.sp, color = muted)
+        }
+    }
+    if (open) ShelfDialog(inst, items) { open = false }
+}
+
+@Composable
+private fun ShelfDialog(inst: InstallController, items: List<ShelfItem>, onDismiss: () -> Unit) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Saved on this phone") },
+        text = {
+            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                Text(
+                    "Nothing is installed until you choose one, press INSTALL and confirm.",
+                    fontSize = 11.sp,
+                    color = muted,
+                )
+                for (item in items) {
+                    Column(Modifier.padding(top = 12.dp)) {
+                        Text(item.name, fontSize = 13.sp, fontFamily = FontFamily.Monospace, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            listOfNotNull(item.version, item.summary.ifBlank { null }, item.origin.ifBlank { null }).joinToString(" · "),
+                            fontSize = 11.sp,
+                            color = muted,
+                        )
+                        Text(
+                            "saved ${shelfTime(item.savedAt)}" + (item.installedAt?.let { " · installed ${shelfTime(it)}" } ?: ""),
+                            fontSize = 11.sp,
+                            color = if (item.installedAt != null) InstallGreen else muted,
+                        )
+                        Row {
+                            TextButton(
+                                onClick = { inst.useShelf(item); onDismiss() },
+                                enabled = !inst.working && !inst.noUnit,
+                            ) { Text("CHOOSE", fontSize = 12.sp) }
+                            TextButton(onClick = { inst.removeFromShelf(item) }, enabled = !inst.working) { Text("REMOVE", fontSize = 12.sp) }
+                        }
                     }
                 }
             }
-        }
-    }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
 }
 
 @Composable
@@ -469,10 +523,12 @@ private fun StatusDot(color: Color) {
  */
 @Composable
 private fun UnitCard(inst: InstallController, onChange: () -> Unit) {
-    OutlinedCard(Modifier.fillMaxWidth().padding(top = 14.dp)) {
+    OutlinedCard(Modifier.fillMaxWidth().padding(top = 10.dp)) {
         Column(Modifier.padding(12.dp)) {
-            Text("Current status", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(4.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Current status", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                UnitMoreMenu(inst)
+            }
             val u = inst.unit
             when {
                 inst.unitError -> Text(inst.unitMessage, fontSize = 12.sp, color = Red)
@@ -492,12 +548,38 @@ private fun UnitCard(inst: InstallController, onChange: () -> Unit) {
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
-            Row {
-                TextButton(onClick = { inst.readUnit() }, enabled = !inst.working) { Text("CHECK AGAIN", fontSize = 12.sp) }
-                TextButton(onClick = { inst.diagnose() }, enabled = !inst.working && !inst.diagBusy) {
-                    Text("TOOLS CHECK", fontSize = 12.sp)
-                }
+            // CHECK VERSION replaces the old CHECK AGAIN + CHECK VERSION pair: it re-checks the connection first
+            // (so it works even before anything was read), then confirms the file's version once a daemon is found.
+            OutlinedButton(
+                onClick = { inst.checkVersion() },
+                enabled = !inst.working,
+                modifier = Modifier.padding(top = 8.dp),
+            ) { Text("CHECK VERSION", fontSize = 12.sp) }
+        }
+    }
+}
+
+/** The three dots next to "Current status": TOOLS CHECK, kept out of the way since it is for more advanced looking. */
+@Composable
+private fun UnitMoreMenu(inst: InstallController) {
+    var open by remember { mutableStateOf(false) }
+    val dot = MaterialTheme.colorScheme.onSurfaceVariant
+    Box {
+        Box(
+            Modifier.size(32.dp).clip(CircleShape).clickable { open = true },
+            contentAlignment = Alignment.Center,
+        ) {
+            Canvas(Modifier.size(width = 4.dp, height = 16.dp)) {
+                val r = 1.8.dp.toPx()
+                for (i in 0..2) drawCircle(dot, radius = r, center = Offset(size.width / 2f, r + i * (size.height - 2 * r) / 2f))
             }
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(
+                text = { Text("Tools check") },
+                onClick = { open = false; inst.diagnose() },
+                enabled = !inst.working && !inst.diagBusy,
+            )
         }
     }
 }
@@ -585,20 +667,17 @@ private fun UnitBody(inst: InstallController, u: UnitStatus, onChange: () -> Uni
                 }
             }
             else -> {
-                // the file is read only on request: it takes a while, and the settings below do not need it
+                // the file is read only on request (CHECK VERSION below): it takes a while, and the settings below do not need it
                 Text(
                     if (version == null) {
-                        "Reads nbt-aad from the head unit (it can take a minute) for its version. Also checks if it is an official release."
+                        "CHECK VERSION below reads nbt-aad from the head unit (it can take a minute) for its version, and checks if it is an official release."
                     } else {
-                        "Reads nbt-aad from the head unit (it can take a minute) to confirm the version. Also checks if it is an official release."
+                        "CHECK VERSION below reads nbt-aad from the head unit (it can take a minute) to confirm the version, and checks if it is an official release."
                     },
                     fontSize = 12.sp,
                     color = soft,
                     modifier = Modifier.padding(top = 4.dp),
                 )
-                OutlinedButton(onClick = { inst.checkInstalled() }, enabled = !inst.working) {
-                    Text("CHECK VERSION", fontSize = 12.sp)
-                }
                 if (inst.fileError) Text(inst.fileMessage, fontSize = 12.sp, color = Red)
             }
         }
@@ -607,14 +686,62 @@ private fun UnitBody(inst: InstallController, u: UnitStatus, onChange: () -> Uni
         Text("The plugin folder was not found on the head unit. A full install makes it.", fontSize = 12.sp, color = Amber, modifier = Modifier.padding(top = 4.dp))
     }
 
-    // ---- the settings that nbt-aad.env applies ----
-    Spacer(Modifier.height(12.dp))
-    AppliedSettings(inst, u)
-    OutlinedButton(
-        onClick = onChange,
-        enabled = inst.job?.status != RunStatus.RUNNING && !u.otherNode,
-        modifier = Modifier.padding(top = 6.dp),
-    ) { Text(if (u.envMissing) "CREATE NBT-AAD.ENV" else "CHANGE", fontSize = 12.sp) }
+    // ---- the settings that nbt-aad.env applies: a compact line, the full list in a small dialog ----
+    Spacer(Modifier.height(10.dp))
+    SettingsRow(inst, u, onChange)
+}
+
+/**
+ * One line standing in for the old inline settings list: when there is nothing set up yet, CREATE goes straight to
+ * it; otherwise a tap opens a small dialog with the full list (what AppliedSettings shows) and CHANGE at its foot.
+ */
+@Composable
+private fun SettingsRow(inst: InstallController, u: UnitStatus, onChange: () -> Unit) {
+    val soft = MaterialTheme.colorScheme.onSurfaceVariant
+    if (u.envMissing) {
+        OutlinedButton(
+            onClick = onChange,
+            enabled = inst.job?.status != RunStatus.RUNNING && !u.otherNode,
+        ) { Text("CREATE NBT-AAD.ENV", fontSize = 12.sp) }
+        return
+    }
+    val applied = inst.appliedOptions()
+    val summary = when {
+        u.otherNode -> "nbt-aad.env is NBTApps' to keep, on the other processor."
+        u.envText == null -> "nbt-aad.env could not be read."
+        applied.isEmpty() -> "Settings: nothing switched on."
+        else -> "Settings: ${applied.size} applied."
+    }
+    val hasDialog = u.envText != null
+    var open by remember { mutableStateOf(false) }
+    Row(
+        (if (hasDialog) Modifier.fillMaxWidth().clickable { open = true } else Modifier.fillMaxWidth()),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(summary, fontSize = 12.sp, color = soft, modifier = Modifier.weight(1f))
+        if (hasDialog) Text("›", fontSize = 16.sp, color = soft)
+    }
+    if (open) SettingsDialog(inst, u, onChange) { open = false }
+}
+
+@Composable
+private fun SettingsDialog(inst: InstallController, u: UnitStatus, onChange: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Settings") },
+        text = {
+            Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                AppliedSettings(inst, u)
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onDismiss(); onChange() },
+                enabled = inst.job?.status != RunStatus.RUNNING && !u.otherNode,
+            ) { Text("CHANGE") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
 }
 
 /** The settings that nbt-aad.env switches on, as the head unit has them (what "Current status" and the wizard list). */
@@ -654,7 +781,7 @@ private fun ProgressLine(text: String) {
 @Composable
 private fun VerdictLines(d: Described) {
     val color = when (d.tone) {
-        Tone.GOOD -> Green
+        Tone.GOOD -> InstallGreen
         Tone.WARN -> Amber
         Tone.PLAIN -> MaterialTheme.colorScheme.onSurfaceVariant
     }
@@ -722,7 +849,7 @@ private fun ReleaseRow(inst: InstallController, r: ReleaseInfo) {
 private fun PackageCard(inst: InstallController, v: PackageView) {
     val pkg = v.pkg
     val verdictColor = when (pkg.kind) {
-        Kind.BUILD -> Green
+        Kind.BUILD -> InstallGreen
         Kind.NOTHING -> Red
         else -> Amber
     }
@@ -740,7 +867,7 @@ private fun PackageCard(inst: InstallController, v: PackageView) {
                 Text(
                     "From Sq00ky's Releases page" + if (v.prerelease) " (pre-release: a test build)" else "",
                     fontSize = 12.sp,
-                    color = if (v.prerelease) Amber else Green,
+                    color = if (v.prerelease) Amber else InstallGreen,
                 )
             } else {
                 Text(
@@ -760,7 +887,7 @@ private fun PackageCard(inst: InstallController, v: PackageView) {
             for (n in Names.ALL) {
                 val p = pkg.payloads[n]
                 Row(Modifier.padding(vertical = 1.dp), verticalAlignment = Alignment.CenterVertically) {
-                    StatusDot(if (p != null) Green else Color.Gray)
+                    StatusDot(if (p != null) InstallGreen else Color.Gray)
                     Spacer(Modifier.width(8.dp))
                     Text(n, fontSize = 12.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.width(176.dp))
                     Text(
@@ -799,7 +926,7 @@ private fun PackageCard(inst: InstallController, v: PackageView) {
             }
             if (inst.noUnit) {
                 Text(
-                    "No head unit was found, so INSTALL is off. Connect to the car, then press CHECK AGAIN at the top.",
+                    "No head unit was found, so INSTALL is off. Connect to the car, then press CHECK VERSION at the top.",
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1137,7 +1264,7 @@ private fun RunDialog(vm: MainViewModel, inst: InstallController, d: RunState) {
     AlertDialog(
         onDismissRequest = { if (d.status != RunStatus.RUNNING) close() },
         containerColor = if (ok) successContainer else AlertDialogDefaults.containerColor,
-        modifier = if (ok) Modifier.border(2.dp, Green, RoundedCornerShape(28.dp)) else Modifier,
+        modifier = if (ok) Modifier.border(2.dp, InstallGreen, RoundedCornerShape(28.dp)) else Modifier,
         title = {
             Text(
                 when (d.status) {
@@ -1146,7 +1273,7 @@ private fun RunDialog(vm: MainViewModel, inst: InstallController, d: RunState) {
                     RunStatus.FAIL -> "$what failed"
                 },
                 color = when (d.status) {
-                    RunStatus.OK -> Green
+                    RunStatus.OK -> InstallGreen
                     RunStatus.FAIL -> Red
                     RunStatus.RUNNING -> Color.Unspecified
                 },
@@ -1163,7 +1290,7 @@ private fun RunDialog(vm: MainViewModel, inst: InstallController, d: RunState) {
                         else LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 10.dp))
                     }
                     RunStatus.OK -> {
-                        Text(d.headline, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Green)
+                        Text(d.headline, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = InstallGreen)
                         for (m in d.notes) Text(m, fontSize = 12.sp, color = Amber, modifier = Modifier.padding(top = 4.dp))
                         Text(
                             when {

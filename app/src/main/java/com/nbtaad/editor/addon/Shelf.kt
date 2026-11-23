@@ -40,6 +40,9 @@ class ShelfItem(
      */
     fun isCopyOf(url: String, fileName: String, page: String?): Boolean =
         if (sourceUrl != null) sourceUrl == url else (name == fileName && page != null && pageUrl == page)
+
+    /** A kept add-on zip (the tile, the menu look): not a main NBT-AAD build, so the install page is not where it belongs. */
+    val isAddOn: Boolean get() = summary == ShelfIndex.TILE_KIND || summary == ShelfIndex.MENU_LOOK_KIND
 }
 
 object ShelfIndex {

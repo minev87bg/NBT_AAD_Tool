@@ -115,7 +115,7 @@ fun App(vm: MainViewModel) {
                 Screen.DETECT -> DetectScreen(vm)
                 Screen.HUB -> HubScreen(vm)
                 Screen.OPTIONS -> SettingsTheme { OptionsScreen(vm) }
-                Screen.INSTALL -> InstallScreen(vm)
+                Screen.INSTALL -> InstallTheme { InstallScreen(vm) }
                 Screen.EXPERIMENTAL -> ExperimentalScreen(vm)
                 Screen.CONTRIBUTE -> ContributeScreen(vm)
                 Screen.WIZARD -> WizardScreen(vm)

@@ -77,6 +77,9 @@ class InstallController(
     private val shelfStore = ShelfStore(ctx)
     var shelf by mutableStateOf<List<ShelfItem>>(emptyList()); private set
 
+    /** The kept files this page is for: not the add-on zips (the tile, the menu look), which belong to their own pages. */
+    val mainShelf: List<ShelfItem> get() = shelf.filterNot { it.isAddOn }
+
     init {
         // known from the start, so the hub can say that a file is waiting
         scope.launch(Dispatchers.IO) { shelf = try { shelfStore.list() } catch (_: Exception) { emptyList() } }
@@ -347,8 +350,12 @@ class InstallController(
     private fun lookingNote(): String =
         if (host() == null) "No car known yet. Looking for the car…" else "No connection. Looking for the car again…"
 
-    /** Looks at the head unit: the folders, the version where the head unit can say it, and nbt-aad.env. Quick. */
-    fun readUnit() {
+    /**
+     * Looks at the head unit: the folders, the version where the head unit can say it, and nbt-aad.env. Quick.
+     * [then] runs once the fresh status is in (not on failure), after [unitBusy] is back to false, so it can safely
+     * start another step of its own (CHECK VERSION chains the file check this way; see [checkVersion]).
+     */
+    fun readUnit(then: (() -> Unit)? = null) {
         if (unitBusy) return
         unitBusy = true
         unitError = false
@@ -356,6 +363,7 @@ class InstallController(
         fileError = false
         unitMessage = if (host() == null) "Looking for the car…" else "Looking at the head unit…"
         scope.launch(Dispatchers.IO) {
+            var ok = false
             try {
                 NetworkBinder.bindToLocalNetwork(ctx)
                 unit = runOnHeadUnit(host, rescan, onRescan = { unitMessage = lookingNote() }, whyNot = problem) {
@@ -364,6 +372,7 @@ class InstallController(
                 }
                 unitMessage = ""
                 unit?.let { AppLog.i("Unit", "Status: ${it.describe()}") }
+                ok = true
             } catch (e: Exception) {
                 if (e is NoUnitFound) AppLog.w("Unit", "No head unit found: ${e.message}")
                 else AppLog.e("Unit", "Reading the head unit failed", e)
@@ -372,7 +381,17 @@ class InstallController(
             } finally {
                 unitBusy = false
             }
+            if (ok) then?.invoke()
         }
+    }
+
+    /**
+     * CHECK VERSION: what used to be two buttons (CHECK AGAIN and CHECK VERSION) made one, since both re-check the
+     * head unit and only one of them also confirms the file's version. Always re-checks the connection first (so it
+     * works even before anything was read), then, once a daemon is found, reads the file for the version compare.
+     */
+    fun checkVersion() {
+        readUnit(then = { if (unit?.hasDaemon == true) checkInstalled() })
     }
 
     /**
@@ -643,7 +662,7 @@ class InstallController(
         }
     }
 
-    /** Closes the result and looks at the head unit again (not while it restarts: then the card waits for CHECK AGAIN). */
+    /** Closes the result and looks at the head unit again (not while it restarts: then the card waits for CHECK VERSION). */
     fun closeRun(readAgain: Boolean = true) {
         if (job?.status == RunStatus.RUNNING) return
         job = null
