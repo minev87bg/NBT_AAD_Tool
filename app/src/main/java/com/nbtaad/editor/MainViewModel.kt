@@ -954,7 +954,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     var recoveringKeys by mutableStateOf(false)
 
-    /** Set when RECOVER ON THIS PHONE is tapped, to show the "these have to be yours" explainer first. */
+    /** Set when LOAD SIGNING TOOLS is tapped, to show the "these have to be yours" explainer first. */
     var showRecoveryInfo by mutableStateOf(false)
 
     /** Result of the last on-device recovery attempt - shown right by the Coding keys button, not the shared [feedback] (that one renders up by CHECK AGAIN, far off-screen from here). */

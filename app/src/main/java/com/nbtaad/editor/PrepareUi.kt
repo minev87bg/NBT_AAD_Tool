@@ -199,15 +199,15 @@ private fun CodingKeysSection(vm: MainViewModel) {
     }
     Text("Coding keys", fontSize = 15.sp, fontWeight = FontWeight.Medium)
     Text(
-        "Writing a coding bit needs two small keys recovered once from your own PSdZData. Tap RECOVER ON THIS " +
-            "PHONE for what that means and where it has to come from.",
+        "Writing a coding bit needs two small keys recovered once from your own PSdZData. Tap LOAD SIGNING " +
+            "TOOLS for what that means and where it has to come from.",
         fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
     )
     Button(
         onClick = { vm.showRecoveryInfo = true },
         enabled = !vm.recoveringKeys,
         modifier = Modifier.fillMaxWidth(),
-    ) { Text(if (vm.recoveringKeys) "RECOVERING…" else "RECOVER ON THIS PHONE…") }
+    ) { Text(if (vm.recoveringKeys) "LOADING…" else "LOAD SIGNING TOOLS…") }
     if (vm.recoveringKeys) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
     if (vm.recoveryFeedback.isNotEmpty()) {
         Text(
