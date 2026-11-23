@@ -210,8 +210,41 @@ internal fun MoreMenu(vm: MainViewModel, modifier: Modifier) {
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             DropdownMenuItem(text = { Text("Manual IPs") }, onClick = { open = false; vm.manualDialog = true })
             DropdownMenuItem(text = { Text("Port probe") }, onClick = { open = false; vm.openProbe() })
+            DropdownMenuItem(text = { Text("Reset") }, onClick = { open = false; vm.openResetWindow() })
         }
     }
+}
+
+/**
+ * Reset, from the 3-dot menu: every reset method there is, tried in turn and listed as its own console line (red
+ * dot when it did not work) - see [MainViewModel.resetHeadUnitAllMethods]. Unlike the reset buttons elsewhere in the
+ * app (which quietly pick whichever one path is reachable), this is the place to see what was actually tried and why
+ * a method was skipped or failed.
+ */
+@Composable
+internal fun ResetWindowDialog(vm: MainViewModel) {
+    AlertDialog(
+        onDismissRequest = { vm.closeResetWindow() },
+        title = { Text("Reset head unit") },
+        text = {
+            Column {
+                Text(
+                    "Looks for the vehicle, then resets it: through its gateway (ZGW) when there is one, " +
+                        "otherwise the head unit's own shell is asked to restart. Every method is listed below.",
+                    fontSize = 12.sp,
+                )
+                Spacer(Modifier.height(10.dp))
+                Button(onClick = { vm.resetHeadUnitAllMethods() }, enabled = !vm.resetWindowBusy) {
+                    Text(if (vm.resetWindowBusy) "RESETTING…" else "RESET HU")
+                }
+                Spacer(Modifier.height(10.dp))
+                WriteLogConsole(vm.resetWindowLog, maxHeight = 260.dp)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { vm.closeResetWindow() }, enabled = !vm.resetWindowBusy) { Text("Close") }
+        },
+    )
 }
 
 /**
@@ -227,7 +260,7 @@ internal fun ProbeDialog(vm: MainViewModel) {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 if (vm.probeText.isEmpty()) {
                     Text(
-                        "Start Android Auto first, so the car's screen shows it and the phone is on the car's WiFi. " +
+                        "Start Android Auto first, so the vehicle's screen shows it and the phone is on the vehicle's WiFi. " +
                             "Then press QUICK (ports up to 10000, about a minute) or FULL (every port, a few minutes).\n\n" +
                             "It only looks: it tries to open connections to the head unit and closes them again. " +
                             "It sends nothing and changes nothing. Android Auto may reconnect once while it runs.",
@@ -565,7 +598,7 @@ private fun ReviewDialog(vm: MainViewModel, r: ReviewState) {
                 }
                 if (r.changes.isEmpty() && !blocked) {
                     Text(
-                        "No setting differs from the file on the car (comments or other lines may still " +
+                        "No setting differs from the file on the vehicle (comments or other lines may still " +
                             "differ). Upload it anyway?",
                         fontSize = 13.sp,
                     )

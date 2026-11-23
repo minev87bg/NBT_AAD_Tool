@@ -30,7 +30,8 @@ class TileKit(
     val program: ByteArray get() = files.getValue(TileKits.PROGRAM)
     val launcher: ByteArray get() = files.getValue(TileKits.LAUNCHER)
     val hook: ByteArray get() = files.getValue(TileKits.HOOK)
-    val title: String get() = "nbt-aa-tile" + (version?.let { " $it" } ?: "")
+    /** The build number on its own ("5"), not folded into [title] any more: the page shows freshness next to the name instead. */
+    val title: String get() = "nbt-aa-tile"
 }
 
 object TileKits {

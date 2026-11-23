@@ -108,7 +108,7 @@ class IconSpec(val shapes: List<Shape>, val skipped: Int) {
         const val MAX_TOKENS = 2500
 
         val SYSTEM_PROMPT =
-            "You draw simple flat icons for the menu of a car's screen. Answer with ONE JSON object and nothing else:\n" +
+            "You draw simple flat icons for the menu of a vehicle's screen. Answer with ONE JSON object and nothing else:\n" +
                 "{\"shapes\":[ ... ]}\n\n" +
                 "The sheet is 100 x 100 units, (0,0) is the top left, and it is transparent unless you paint a background. " +
                 "Shapes are painted in list order. Each shape has \"type\" and these numbers:\n" +

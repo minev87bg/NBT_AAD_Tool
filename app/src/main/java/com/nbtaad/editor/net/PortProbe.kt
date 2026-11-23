@@ -261,7 +261,7 @@ object PortProbe {
         cancelled: () -> Boolean,
     ): String {
         if (nets.isEmpty()) {
-            return "The phone has no WiFi network to look at. Join the car's WiFi (or let Android Auto do it) and try again."
+            return "The phone has no WiFi network to look at. Join the vehicle's WiFi (or let Android Auto do it) and try again."
         }
         AppLog.i("Probe", "Phone networks: " + nets.joinToString { "${it.name} ${it.ip}/${it.prefix}" })
         facts.lines.forEach { AppLog.i("Probe", it) }

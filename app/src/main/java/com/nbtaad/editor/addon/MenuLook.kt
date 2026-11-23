@@ -22,7 +22,8 @@ class MenuLookKit(
     val notes: List<String>,
 ) {
     val ok: Boolean get() = problems.isEmpty() && program != null
-    val title: String get() = "aa-menu-look" + (version?.let { " $it" } ?: "")
+    /** The build number on its own ("2"), not folded into [title] any more: the page shows freshness next to the name instead. */
+    val title: String get() = "aa-menu-look"
 }
 
 object MenuLookKits {

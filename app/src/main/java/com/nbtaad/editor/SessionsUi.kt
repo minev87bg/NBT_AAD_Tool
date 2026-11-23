@@ -52,7 +52,7 @@ internal fun SessionsDialog(c: ContributeController) {
                                 "header line. Here you pick the starts to send, usually the newest one: much less to read " +
                                 "from the slow head unit than the whole file.\n\nFinding the headers means reading the stick " +
                                 "once, which can take a minute. The list is kept until you look at the head unit again.\n\n" +
-                                "The time is the first GPS time the car gave in that run, in your phone's time. A run " +
+                                "The time is the first GPS time the vehicle gave in that run, in your phone's time. A run " +
                                 "without GPS has none; then the build and the size tell the runs apart.",
                             mono = false,
                         ) { showInfo = false }

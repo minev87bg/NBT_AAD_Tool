@@ -15,13 +15,13 @@ import kotlinx.coroutines.withContext
 /**
  * What the live look at the head unit's SSH says, for the pages that cannot do anything without it (the tile, the menu look).
  *
- * On the car's own Android Auto WiFi the head unit is the router, and its packet filter (PF) can block the phone's SSH
+ * On the vehicle's own Android Auto WiFi the head unit is the router, and its packet filter (PF) can block the phone's SSH
  * while Android Auto itself keeps working: Android Auto's own port answers, port 22 does not. That is the one case the
  * light names (the person has to remove the PF in the head unit's Android Auto menu and restart Android Auto); the
  * other reds say only that nothing usable answers.
  */
 object HeadUnitLight {
-    enum class Kind { CHECKING, GREEN, PF_BLOCKED, NOT_HEAD_UNIT, SILENT, NO_NETWORK }
+    enum class Kind { IDLE, CHECKING, GREEN, PF_BLOCKED, NOT_HEAD_UNIT, SILENT, NO_NETWORK }
 
     /** Android Auto's own port on the head unit: it answers while Android Auto runs, whatever the packet filter blocks. */
     const val AA_PORT = 5277
@@ -58,7 +58,7 @@ object HeadUnitLight {
     )
 
     /** The same, in one text, for the places that show a single line of trouble (a failed look at the head unit). */
-    const val PF_PROBLEM = "The head unit's packet filter (PF) blocks SSH on the car's Android Auto WiFi, so the app cannot reach it. " +
+    const val PF_PROBLEM = "The head unit's packet filter (PF) blocks SSH over the vehicle's own WiFi, so the app cannot reach it. " +
         "Remove the PF in the head unit's Android Auto menu, then restart Android Auto so that the change takes effect, " +
         "and try again."
 
@@ -70,10 +70,11 @@ object HeadUnitLight {
         return Seen(host, ssh, banner, aa)
     }
 
-    const val PF_WHY = "The packet filter blocks SSH (port 22) on the car's Android Auto WiFi, so the app cannot reach the head unit. " +
+    const val PF_WHY = "The packet filter blocks SSH (port 22) over the vehicle's own WiFi, so the app cannot reach the head unit. " +
         "Android Auto itself still answers."
 
     fun headline(l: Light): String = when (l.kind) {
+        Kind.IDLE -> "Not scanned yet."
         Kind.CHECKING -> "Looking at the connection to the head unit…"
         Kind.GREEN -> "Green light: SSH answers on ${l.host}. You can go on."
         Kind.PF_BLOCKED -> PF_TITLE
@@ -85,19 +86,21 @@ object HeadUnitLight {
 
     /** What to do for the reds that have no steps of their own. */
     fun advice(l: Light): String? = when (l.kind) {
-        Kind.SILENT -> "Start Android Auto on the phone and check that the phone is on the car's WiFi. This page keeps looking."
-        Kind.NO_NETWORK -> "Join the car's WiFi (or switch the hotspot on). This page keeps looking."
-        Kind.NOT_HEAD_UNIT -> "Check that the phone is on the car's WiFi and not another network. This page keeps looking."
+        Kind.SILENT -> "Make sure the phone has an SSH connection to the head unit: Android Auto running on the " +
+            "vehicle's own WiFi, or connected another way (ENET, dongle). Then scan again."
+        Kind.NO_NETWORK -> "Connect the phone to a network that reaches the head unit (the vehicle's own WiFi, or a dongle), then scan again."
+        Kind.NOT_HEAD_UNIT -> "Check that the phone's SSH connection reaches the head unit, not another device, then scan again."
         else -> null
     }
 }
 
 /**
- * The live look: every few seconds it asks the addresses that may be the head unit (the one the app knows and the routers
- * the phone was given) whether SSH answers, and keeps the [light]. It only opens short connections and closes them again.
+ * The look at the head unit's SSH, done once whenever the person presses SCAN THE HEAD UNIT (not on its own): asks the
+ * addresses that may be the head unit (the one the app knows and the routers the phone was given) whether SSH answers,
+ * and keeps the [light]. It only opens short connections and closes them again.
  */
 class HeadUnitWatch(private val ctx: Context, private val known: () -> String?) {
-    var light by mutableStateOf(HeadUnitLight.Light(HeadUnitLight.Kind.CHECKING)); private set
+    var light by mutableStateOf(HeadUnitLight.Light(HeadUnitLight.Kind.IDLE)); private set
 
     /** When the last look ended (wall clock) and how many there were since the page opened. */
     var lastTry by mutableStateOf(0L); private set
@@ -105,9 +108,10 @@ class HeadUnitWatch(private val ctx: Context, private val known: () -> String?) 
 
     val green: Boolean get() = light.green
 
-    /** One look. True when this look turned the light green and it was not green before. */
+    /** One look, started by the person. True when this look turned the light green and it was not green before. */
     suspend fun look(): Boolean = withContext(Dispatchers.IO) {
         val was = light.kind
+        light = HeadUnitLight.Light(HeadUnitLight.Kind.CHECKING)
         val now = try {
             NetworkBinder.bindToLocalNetwork(ctx)
             val nets = CarDetector.localNetworks()

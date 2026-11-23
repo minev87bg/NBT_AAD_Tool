@@ -74,8 +74,8 @@ fun HubScreen(vm: MainViewModel) {
         Text("What do you want to do?", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
         Spacer(Modifier.height(4.dp))
         Text(
-            if (vm.detect.hu == null && vm.detect.vin == null) "No car connected: you can still look around"
-            else "Car ${vm.detect.vin ?: "(VIN unknown)"}, head unit ${vm.detect.hu ?: "?"}",
+            if (vm.detect.hu == null && vm.detect.vin == null) "No vehicle connected: you can still look around"
+            else "Vehicle ${vm.detect.vin ?: "(VIN unknown)"}, head unit ${vm.detect.hu ?: "?"}",
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -85,8 +85,8 @@ fun HubScreen(vm: MainViewModel) {
             subtitle = if (vm.detect.ssh) "SSH is open" else "Open its SSH",
             info = "Gets the head unit ready for Android Auto to work without problems. Many of the issues people " +
                 "report trace back to a head unit whose coding leaves SSH closed or restricted.\n\nToday: opening SSH, " +
-                "which needs the car's own Ethernet gateway (ZGW), reached over an ENET cable, not the car's Android " +
-                "Auto WiFi; pressing CHECK CODINGS on that page looks for the car itself, cable or not. Checking and " +
+                "which needs the vehicle's own Ethernet gateway (ZGW), reached over an ENET cable, not the vehicle's Android " +
+                "Auto WiFi; pressing CHECK CODINGS on that page looks for the vehicle itself, cable or not. Checking and " +
                 "changing the head unit's own coding is coming next.",
             icon = HubIcon.BINARY,
             colors = listOf(Color(0xFF8FD8F2), Color(0xFF3DAEDE)),
@@ -155,6 +155,7 @@ fun HubScreen(vm: MainViewModel) {
     if (vm.askDraft) DraftDialog(vm)
     if (vm.manualDialog) ManualDialog(vm)
     if (vm.probeDialog) ProbeDialog(vm)
+    if (vm.resetWindowOpen) ResetWindowDialog(vm)
 }
 
 private val HeroText = Color(0xFF0B2A14)
@@ -307,7 +308,7 @@ internal fun DraftDialog(vm: MainViewModel) {
         title = { Text("Unfinished session found") },
         text = {
             Text(
-                "There is an edited nbt-aad.env for this car (${vm.detect.vin ?: "unknown VIN"}) that was never " +
+                "There is an edited nbt-aad.env for this vehicle (${vm.detect.vin ?: "unknown VIN"}) that was never " +
                     "uploaded. Use that file?"
             )
         },
@@ -940,13 +941,13 @@ private fun PackageCard(inst: InstallController, v: PackageView) {
             }
             if (inst.noUnit) {
                 Text(
-                    "No head unit was found, so INSTALL is off. Connect to the car, then press CHECK VERSION at the top.",
+                    "No head unit was found, so INSTALL is off. Connect to the vehicle, then press CHECK VERSION at the top.",
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else if (!inst.hasHost) {
                 Text(
-                    "No car is connected yet: the app looks for it first when you press INSTALL.",
+                    "No head unit is connected yet: the app looks for it first when you press INSTALL.",
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

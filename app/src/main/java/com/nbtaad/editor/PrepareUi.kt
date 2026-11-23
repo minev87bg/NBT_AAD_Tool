@@ -123,7 +123,7 @@ fun PrepareScreen(vm: MainViewModel) {
         }
 
         Spacer(Modifier.height(18.dp))
-        StatusRow("Car's Ethernet gateway (ZGW)", vm.detect.zgw, found = vm.detect.zgw != null)
+        StatusRow("Vehicle's Ethernet gateway (ZGW)", vm.detect.zgw, found = vm.detect.zgw != null)
         StatusRow("Head unit's SSH", if (vm.detect.ssh) "Open" else null, found = vm.detect.ssh)
 
         Spacer(Modifier.height(12.dp))
@@ -144,7 +144,7 @@ fun PrepareScreen(vm: MainViewModel) {
             }
             else -> {
                 Text(
-                    "Connect the car over its Ethernet port (an ENET/OBD cable, not the Android Auto WiFi) to prepare " +
+                    "Connect the vehicle over its Ethernet port (an ENET/OBD cable, not the Android Auto WiFi) to prepare " +
                         "the head unit.",
                     fontSize = 12.sp, color = muted,
                 )
@@ -189,7 +189,7 @@ fun PrepareScreen(vm: MainViewModel) {
             title = { Text("Write ${fixes.size} coding bit(s)?") },
             text = {
                 Column {
-                    Text("To car ${vm.detect.vin}. Each bit is set to the value Sq00ky's project lists as AKTIV:")
+                    Text("To vehicle ${vm.detect.vin}. Each bit is set to the value Sq00ky's project lists as AKTIV:")
                     for ((bit, value) in fixes) {
                         Text("• ${bit.token} → $value", fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
                     }
@@ -398,7 +398,7 @@ private fun WriteCodingSection(vm: MainViewModel) {
     val securityAccessFailed = vm.codingWriteLog?.any { !it.ok && it.name.startsWith("SecurityAccess") } == true
     if (securityAccessFailed) {
         Text(
-            "SecurityAccess was rejected above. This car's firmware may unlock a coding write at a different " +
+            "SecurityAccess was rejected above. This vehicle's firmware may unlock a coding write at a different " +
                 "level than this app assumes — read-only check, never sends a key, writes nothing:",
             fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 14.dp, bottom = 6.dp),
         )
@@ -436,9 +436,9 @@ private fun InfoBadge(onClick: () -> Unit) {
     }
 }
 
-/** The write/revert log behind SHOW LOG, as a small dark console - the same idea as the install log's. */
+/** The write/revert log behind SHOW LOG, as a small dark console - the same idea as the install log's and the Reset window's. */
 @Composable
-private fun WriteLogConsole(log: List<com.nbtaad.editor.net.WriteStep>, maxHeight: Dp) {
+internal fun WriteLogConsole(log: List<com.nbtaad.editor.net.WriteStep>, maxHeight: Dp) {
     val scroll = rememberScrollState()
     LaunchedEffect(log.size) { scroll.animateScrollTo(scroll.maxValue) }
     Column(

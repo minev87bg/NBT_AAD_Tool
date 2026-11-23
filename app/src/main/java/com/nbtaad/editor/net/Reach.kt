@@ -57,9 +57,9 @@ object Online {
 }
 
 object Reach {
-    /** Shown when an action needs the head unit, none was known and the app looked for the car and found none. */
-    const val NO_UNIT = "No car found. Make sure the phone is on the car's WiFi (phone, dongle and car in the same " +
-        "network) and try again. DETECT CAR on the first screen shows more."
+    /** Shown when an action needs the head unit, none was known and the app looked for it and found none. */
+    const val NO_UNIT = "No head unit found. Make sure the phone has an SSH connection to it (ENET cable to the " +
+        "vehicle, or the phone on the vehicle's own WiFi) and try again."
 
     /** Whether a failed connect means "no connection" (as opposed to a refused login or no common algorithm). */
     fun looksUnreachable(e: Throwable): Boolean {
@@ -83,12 +83,12 @@ object Reach {
 class NoUnitFound(message: String) : IOException(message)
 
 /**
- * Runs [block] with the head unit's address. Where there is no address yet (the first screen was skipped, or the car
- * changed) the car is looked for first, and when no SSH connection can be made, it is looked for again: [rescan] does
- * what DETECT CAR does and returns the address it found, or null. [onRescan] is called before each look. When the
- * car is looked for and not found, the failure says why ([whyNot], else a general text). [block] runs a second time
- * only after a failed connect, never after a failure halfway through the work, and never right after a look that
- * just found the address.
+ * Runs [block] with the head unit's address. Where there is no address yet (none was found before, or the vehicle
+ * changed) it is looked for first, and when no SSH connection can be made, it is looked for again: [rescan] looks
+ * for its SSH and returns the address it found, or null. [onRescan] is called before each look. When it is looked
+ * for and not found, the failure says why ([whyNot], else a general text). [block] runs a second time only after a
+ * failed connect, never after a failure halfway through the work, and never right after a look that just found the
+ * address.
  */
 fun <T> runOnHeadUnit(
     host: () -> String?,

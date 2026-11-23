@@ -51,6 +51,7 @@ import com.nbtaad.editor.net.PortProbe
 import com.nbtaad.editor.net.PortState
 import com.nbtaad.editor.net.Reach
 import com.nbtaad.editor.net.Online
+import com.nbtaad.editor.net.WriteStep
 import com.nbtaad.editor.net.friendlyError
 import com.nbtaad.editor.net.runOnHeadUnit
 import com.nbtaad.editor.update.Check
@@ -514,17 +515,25 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // Detect
     // =====================================================================
 
-    /** The detection with what Android says about the phone's networks (the routers: on the car's own WiFi that is the head unit). */
-    private fun detectCar(progress: (String) -> Unit): DetectResult {
-        val hints = try {
-            PortProbe.netFacts(ctx).let { it.gateways + it.dhcp + it.dns }
-        } catch (_: Exception) {
-            emptyList()
-        }
-        return CarDetector.detect(hints, progress)
+    /** The hints (routers, DHCP and DNS servers the phone was given) both detections pass along to [CarDetector]. */
+    private fun netHints(): Collection<String> = try {
+        PortProbe.netFacts(ctx).let { it.gateways + it.dhcp + it.dns }
+    } catch (_: Exception) {
+        emptyList()
     }
 
-    /** The detection every page does for itself when it needs the head unit (see [rescanForHost]), or [checkCodings], [setManual] and [resetHeadUnit] redo it to refresh what is known. */
+    /** The full detection (gateway and head unit): only Prepare headunit needs this. See [detectCarSsh] for everything else. */
+    private fun detectCar(progress: (String) -> Unit): DetectResult = CarDetector.detect(netHints(), progress)
+
+    /** SSH only, no gateway: what every page besides Prepare headunit looks for (see [rescanForHost]). */
+    private fun detectCarSsh(progress: (String) -> Unit): DetectResult = CarDetector.detectSsh(netHints(), progress)
+
+    /**
+     * The detection every page does for itself when it needs the head unit (see [rescanForHost], SSH only), or
+     * [checkCodings], [setManual] and [resetHeadUnit] redo it to refresh what is known (the full detection, gateway
+     * included). Written so either kind of result reads correctly: a page that only looked for SSH never has a
+     * gateway to show, and that is not the same as nothing being found.
+     */
     private fun applyResult(r: DetectResult) {
         AppLog.i("Detect", "Applied: gateway ${r.zgwIp}, VIN ${r.vin}, head unit ${r.huIp}, SSH ${r.sshOpen}, problem ${r.problem}")
         detect = DetectState(r.zgwIp != null || r.viaCarWifi, r.zgwIp, r.huIp, r.vin, r.sshOpen, r.viaCarWifi, r.pfBlocked)
@@ -534,20 +543,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 feedbackError = true
                 r.problem ?: HeadUnitLight.PF_PROBLEM
             }
-            r.viaCarWifi && r.sshOpen -> "Connected through the car's Android Auto WiFi (no car gateway needed). SSH is open."
+            r.viaCarWifi && r.sshOpen -> "Connected through the vehicle's own WiFi (no gateway needed). SSH is open."
             r.viaCarWifi -> {
                 feedbackError = true
-                r.problem ?: "The head unit answers over the car's WiFi, but SSH did not work. Try again."
+                r.problem ?: "The head unit answers over the vehicle's WiFi, but SSH did not work. Try again."
             }
-            r.zgwIp == null -> {
+            r.huIp != null && r.sshOpen -> "Head unit found. SSH is open."
+            r.huIp != null -> "Head unit found, but SSH (port 22) is closed. Use the reset button next to the red dot."
+            r.zgwIp != null -> {
                 feedbackError = true
-                r.problem ?: "No car detected."
+                r.problem ?: "Gateway found, but no head unit with SSH was found. Use the reset button or set the IPs manually."
             }
-            r.huIp != null && r.sshOpen -> "Car found. SSH is open."
-            r.huIp != null -> "Car found, but SSH (port 22) is closed. Use the reset button next to the red dot."
-            else -> "Car found, but no head unit with SSH was found. Use the reset button or set the IPs manually."
+            else -> {
+                feedbackError = true
+                r.problem ?: "No head unit found."
+            }
         }
-        if (r.zgwIp != null && r.huIp != null && r.sshOpen) markCarNetwork(r.huIp)
+        if (r.huIp != null && r.sshOpen) markCarNetwork(r.huIp)
     }
 
     /**
@@ -564,7 +576,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         val ssid = WifiNames.currentSsid(ctx)
         carNet = CarNet(net.name, net.ip, CarNetLogic.subnetOf(net.ip), ssid)
-        AppLog.i("Wifi", "The car answers on ${net.name} ${net.ip}" + (ssid?.let { " (WiFi \"$it\")" } ?: " (the WiFi name is not known)"))
+        AppLog.i("Wifi", "The vehicle answers on ${net.name} ${net.ip}" + (ssid?.let { " (WiFi \"$it\")" } ?: " (the WiFi name is not known)"))
         // another WiFi than the one the person described: the earlier answer is not about this one
         val known = dongle
         if (known != null && ssid != null && !ssid.equals(known.ssid, ignoreCase = true)) {
@@ -702,9 +714,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         pollJob?.cancel()
         resetting = true
         feedbackError = false
-        resetNote = if (fromWindow) "Looking for the car…" else null
+        resetNote = if (fromWindow) "Looking for the vehicle…" else null
         fun note(text: String) { if (resetNote != null) resetNote = text }
-        feedback = "Looking for the car…"
+        feedback = "Looking for the vehicle…"
         pollJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 NetworkBinder.bindToLocalNetwork(ctx)
@@ -726,7 +738,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     return@launch
                 }
                 if (gw == null) {
-                    val text = scan.problem ?: "No car detected."
+                    val text = scan.problem ?: "No vehicle detected."
                     feedbackError = true
                     feedback = text
                     note(text)
@@ -841,8 +853,101 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         note(text)
     }
 
-    /** A reset can be sent: through the car's gateway, or, on the car's Android Auto WiFi where there is none, asked of the head unit's shell. */
+    /** A reset can be sent: through the vehicle's gateway, or, on the vehicle's Android Auto WiFi where there is none, asked of the head unit's shell. */
     val canResetHeadUnit: Boolean get() = (detect.zgw != null && detect.vin != null) || (detect.hu != null && detect.ssh)
+
+    // ---------------- the Reset window (3-dot menu): every method, listed ----------------
+
+    var resetWindowOpen by mutableStateOf(false)
+    var resetWindowBusy by mutableStateOf(false); private set
+    var resetWindowLog by mutableStateOf<List<WriteStep>>(emptyList()); private set
+
+    fun openResetWindow() {
+        resetWindowOpen = true
+    }
+
+    fun closeResetWindow() {
+        if (resetWindowBusy) return
+        resetWindowOpen = false
+    }
+
+    /**
+     * RESET HU in the window opened from the 3-dot menu: unlike [resetHeadUnit] (which only ever follows the one path
+     * the last scan makes available), this tries every method there is and reports each as its own line in
+     * [resetWindowLog], red dot when it did not work - so the person can see why, instead of guessing which path was
+     * taken. The vehicle is scanned fresh first, so a method is never sent to a stale address. Only one reset is
+     * actually sent: the gateway's own reset when the gateway is there, the head unit's shell asked to restart only
+     * when the gateway is not there or the gateway's reset failed (sending both risks racing the head unit against
+     * itself as it restarts).
+     */
+    fun resetHeadUnitAllMethods() {
+        if (resetWindowBusy) return
+        resetWindowBusy = true
+        resetWindowLog = emptyList()
+        fun log(name: String, ok: Boolean, detail: String) {
+            resetWindowLog = resetWindowLog + WriteStep(name, ok, detail)
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                NetworkBinder.bindToLocalNetwork(ctx)
+                val scan = detectCar { }
+                log(
+                    "Look for the vehicle",
+                    scan.zgwIp != null || scan.huIp != null,
+                    "Gateway " + (scan.zgwIp ?: "not found") + ", head unit " + (scan.huIp ?: "not found") +
+                        (scan.huIp?.let { if (scan.sshOpen) " (SSH open)" else " (SSH closed)" } ?: ""),
+                )
+                val gw = scan.zgwIp
+                var zgwOk = false
+                if (gw != null) {
+                    var res = Hsfz.resetHeadUnit(gw)
+                    if (res.unreachable) {
+                        delay(3000)
+                        res = Hsfz.resetHeadUnit(gw)
+                    }
+                    log("Reset by the gateway (ZGW)", res.ok, res.message)
+                    zgwOk = res.ok
+                } else {
+                    log("Reset by the gateway (ZGW)", false, "No gateway found: nothing to send the reset to.")
+                }
+                var sshOk = false
+                if (!zgwOk) {
+                    val shellHost = scan.huIp ?: detect.hu
+                    if (shellHost != null) {
+                        val r = HuRestart.ask(shellHost)
+                        sshOk = r.error == null
+                        log("Restart through SSH", sshOk, r.error ?: (r.ok + r.info).lastOrNull() ?: "Asked.")
+                    } else {
+                        log("Restart through SSH", false, "No head unit address known: nothing to ask.")
+                    }
+                } else {
+                    log("Restart through SSH", true, "Not needed: the gateway's reset was sent.")
+                }
+                if (zgwOk || sshOk) {
+                    detect = detect.copy(ssh = false)
+                    log("Wait for the head unit", true, "Waiting for SSH to open again…")
+                    val end = System.currentTimeMillis() + 240_000
+                    var found: String? = null
+                    while (isActive && System.currentTimeMillis() < end && found == null) {
+                        delay(5000)
+                        val (hu, open) = CarDetector.findHeadUnit(CarDetector.localNetworks(), gw)
+                        if (hu != null && open) found = hu
+                    }
+                    resetWindowLog = resetWindowLog.dropLast(1) + if (found != null) {
+                        detect = detect.copy(hu = found, ssh = true)
+                        WriteStep("Wait for the head unit", true, "Back: SSH is open on $found.")
+                    } else {
+                        WriteStep("Wait for the head unit", false, "SSH did not open within 4 minutes.")
+                    }
+                }
+            } catch (e: Exception) {
+                AppLog.e("Reset", "Reset (all methods) failed", e)
+                log("Reset", false, friendlyError(e))
+            } finally {
+                resetWindowBusy = false
+            }
+        }
+    }
 
     /** What "Check codings" on the Prepare headunit page last found; null before it has run once. */
     var codingResults by mutableStateOf<List<com.nbtaad.editor.net.CodingResult>?>(null)
@@ -1114,7 +1219,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     private fun clearCarFaultsAndDescribe(ip: String, choice: ClearDtcChoice): String {
         if (choice == ClearDtcChoice.DONT) return ""
-        val scope = if (choice == ClearDtcChoice.HEAD_UNIT_ONLY) "the head unit's" else "the car's"
+        val scope = if (choice == ClearDtcChoice.HEAD_UNIT_ONLY) "the head unit's" else "the vehicle's"
         val steps = if (choice == ClearDtcChoice.HEAD_UNIT_ONLY) {
             com.nbtaad.editor.net.CodingWrite.clearHeadUnitFaults(ip)
         } else {
@@ -1302,14 +1407,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private var scanProblem: String? = null
 
     /**
-     * Looks for the car for an action that needs the head unit and has no address, or whose address does not
-     * answer; returns the head unit's address when SSH answers there. Every page that needs the car does this for
-     * itself, instead of a dedicated detection step before the rest of the app is reachable.
+     * Looks for the vehicle's SSH for an action that needs the head unit and has no address, or whose address does
+     * not answer; returns the head unit's address when SSH answers there. No gateway (ZGW) scan: only Prepare
+     * headunit needs that. Every page that needs the head unit does this for itself, instead of a dedicated
+     * detection step before the rest of the app is reachable.
      */
     private fun rescanForHost(): String? {
         NetworkBinder.bindToLocalNetwork(ctx)
-        AppLog.i("Detect", if (detect.hu == null) "Looking for the car (no car is known yet)" else "Looking for the car again (no SSH connection)")
-        val r = detectCar { AppLog.i("Detect", it) }
+        AppLog.i("Detect", if (detect.hu == null) "Looking for the head unit (none known yet)" else "Looking for the head unit again (no SSH connection)")
+        val r = detectCarSsh { AppLog.i("Detect", it) }
         applyResult(r)
         val host = if (r.sshOpen) r.huIp else null
         scanProblem = if (host != null) null else feedback
@@ -1318,7 +1424,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** What a screen says while an action looks for the car: the first look when no car is known, else a new look. */
     private fun lookingNote(): String =
-        if (detect.hu == null) "No car known yet. Looking for the car…" else "No connection. Looking for the car again…"
+        if (detect.hu == null) "No vehicle known yet. Looking for the vehicle…" else "No connection. Looking for the vehicle again…"
 
     // =====================================================================
     // Navigation between the screens
@@ -1475,7 +1581,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 // changes are shown against the file as it was last read from the car, when we still have it
                 applyDoc(draft, storage.readFromCar(carId)?.let { f -> EnvDoc.parse(f) } ?: draft)
                 optFeedback = "Loaded the unfinished file from the last session. Review it and press SAVE, " +
-                    "or press READ OPTIONS to start over from the car."
+                    "or press READ OPTIONS to start over from the vehicle."
             }
         }
         screen = Screen.OPTIONS

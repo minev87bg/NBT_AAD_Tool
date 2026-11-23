@@ -348,7 +348,7 @@ class InstallController(
 
     /** What is said while the car is looked for: the first look when no car is known, else a new look. */
     private fun lookingNote(): String =
-        if (host() == null) "No car known yet. Looking for the car…" else "No connection. Looking for the car again…"
+        if (host() == null) "No vehicle known yet. Looking for the vehicle…" else "No connection. Looking for the vehicle again…"
 
     /**
      * Looks at the head unit: the folders, the version where the head unit can say it, and nbt-aad.env. Quick.
@@ -361,7 +361,7 @@ class InstallController(
         unitError = false
         unit = null
         fileError = false
-        unitMessage = if (host() == null) "Looking for the car…" else "Looking at the head unit…"
+        unitMessage = if (host() == null) "Looking for the vehicle…" else "Looking at the head unit…"
         scope.launch(Dispatchers.IO) {
             var ok = false
             try {
@@ -498,7 +498,7 @@ class InstallController(
     fun diagnose() {
         if (diagBusy) return
         diagBusy = true
-        diagText = if (host() == null) "Looking for the car…" else "Asking the head unit…"
+        diagText = if (host() == null) "Looking for the vehicle…" else "Asking the head unit…"
         scope.launch(Dispatchers.IO) {
             try {
                 NetworkBinder.bindToLocalNetwork(ctx)

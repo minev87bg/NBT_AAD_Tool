@@ -216,7 +216,7 @@ object Hsfz {
                 }
             }
         } catch (e: Exception) {
-            AppLog.e("HSFZ", "Clearing all car faults failed", e)
+            AppLog.e("HSFZ", "Clearing all vehicle faults failed", e)
             steps.add(WriteStep("Connect", false, e.message ?: e.javaClass.simpleName))
         }
         return steps
@@ -343,7 +343,7 @@ object Hsfz {
                 s.connect(InetSocketAddress(zgwIp, TCP_PORT), 3000)
             } catch (e: IOException) {
                 AppLog.w("HSFZ", "Reset: no connection to $zgwIp:$TCP_PORT: ${e.javaClass.simpleName}: ${e.message}")
-                return ResetResult(false, "The car's gateway ($zgwIp) does not answer.", unreachable = true)
+                return ResetResult(false, "The vehicle's gateway ($zgwIp) does not answer.", unreachable = true)
             }
             s.soTimeout = 3000
             s.getOutputStream().write(diagFrame(TESTER, HEAD_UNIT, byteArrayOf(0x11, 0x01)))

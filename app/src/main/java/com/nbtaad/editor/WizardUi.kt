@@ -230,7 +230,7 @@ private fun TestStep(vm: MainViewModel) {
     Spacer(Modifier.height(8.dp))
     Numbered(1, "If you changed the version or the settings, restart the head unit: they start with it, and the logs begin clean.")
     ResetButton(vm, Modifier.padding(start = 24.dp, top = 2.dp, bottom = 4.dp))
-    Numbered(2, "Join the car's WiFi and start Android Auto on the phone.")
+    Numbered(2, "Join the vehicle's WiFi and start Android Auto on the phone.")
     Numbered(3, "Do what the page asks and try to make the problem happen.")
     Numbered(4, "Then leave Android Auto running. Do not stop it and do not restart anything.")
     Spacer(Modifier.height(16.dp))

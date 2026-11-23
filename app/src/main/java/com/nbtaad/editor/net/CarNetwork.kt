@@ -17,8 +17,9 @@ import androidx.compose.runtime.setValue
 import com.nbtaad.editor.log.AppLog
 
 /**
- * The network the car answered on at the last good DETECT CAR. Kept for the session only (the app's memory, gone when it
- * closes). [ssid] is null when the phone would not tell the name (Android hides it without the Location permission).
+ * The network the vehicle answered on at the last good look for it. Kept for the session only (the app's memory, gone
+ * when it closes). [ssid] is null when the phone would not tell the name (Android hides it without the Location
+ * permission).
  */
 data class CarNet(val ifName: String, val ip: String, val subnet: String, val ssid: String?)
 
@@ -27,7 +28,7 @@ data class DongleWifi(val ssid: String, val password: String)
 
 /** Small pure helpers, tested without a phone. */
 object CarNetLogic {
-    /** "192.168.0.13" -> "192.168.0": the /24 the phone is on, which is how the app tells that it is still on the car's network. */
+    /** "192.168.0.13" -> "192.168.0": the /24 the phone is on, which is how the app tells that it is still on the vehicle's network. */
     fun subnetOf(ip: String): String = ip.substringBeforeLast('.', ip)
 
     /** Android's SSID text ("\"Name\"", "<unknown ssid>", "0x") -> the name, or null when it is not a name. */

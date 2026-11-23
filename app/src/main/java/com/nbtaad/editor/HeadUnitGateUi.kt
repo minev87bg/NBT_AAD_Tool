@@ -8,39 +8,45 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nbtaad.editor.net.HeadUnitLight
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 /**
- * The live look at the head unit's SSH, on the pages that cannot do anything without it. It looks every few seconds while
- * the page is open (not while a step runs on the head unit: [paused]), and says in a box that cannot be missed what is
- * wrong when SSH does not answer. The page keeps its buttons off until the light is green ([MainViewModel.watch]).
+ * The look at the head unit's SSH, on the pages that cannot do anything without it. Nothing happens on its own: a
+ * SCAN THE HEAD UNIT button does one look whenever the person presses it (not while a step runs on the head unit:
+ * [paused]), and says in a box that cannot be missed what is wrong when SSH does not answer. The page keeps its
+ * buttons off until the light is green ([MainViewModel.watch]).
  */
 @Composable
 fun HeadUnitGate(vm: MainViewModel, paused: Boolean, onGreen: () -> Unit = { vm.onSshGreen() }) {
     val w = vm.watch
     val inst = vm.inst
-    LaunchedEffect(paused) {
-        if (paused) return@LaunchedEffect
-        while (true) {
-            if (w.look()) onGreen()
-            delay(if (w.green) 6000L else 3000L)
-        }
+    val scope = rememberCoroutineScope()
+    fun scan() {
+        scope.launch { if (w.look()) onGreen() }
     }
     val l = w.light
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     when {
+        l.kind == HeadUnitLight.Kind.IDLE -> Column(Modifier.padding(top = 14.dp).fillMaxWidth()) {
+            Text("Not scanned yet.", fontSize = 12.sp, color = muted)
+            OutlinedButton(onClick = { scan() }, enabled = !paused, modifier = Modifier.padding(top = 6.dp)) {
+                Text("SCAN THE HEAD UNIT", fontSize = 12.sp)
+            }
+        }
+
         l.kind == HeadUnitLight.Kind.CHECKING -> Column(Modifier.padding(top = 14.dp).fillMaxWidth()) {
             Text(HeadUnitLight.headline(l), fontSize = 12.sp, color = muted)
             LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 6.dp))
@@ -77,12 +83,15 @@ fun HeadUnitGate(vm: MainViewModel, paused: Boolean, onGreen: () -> Unit = { vm.
             } else {
                 HeadUnitLight.advice(l)?.let { Text(it, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp)) }
             }
-            Text(
-                "Looking again every few seconds" + (if (w.lastTry > 0) " (last look ${clock(w.lastTry)}, look ${w.tries})" else "") +
-                    ". The buttons below come on when this turns green.",
-                fontSize = 11.sp, color = muted, modifier = Modifier.padding(top = 8.dp),
-            )
-            LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 6.dp))
+            if (w.lastTry > 0) {
+                Text(
+                    "Last scan ${clock(w.lastTry)} (scan ${w.tries}).",
+                    fontSize = 11.sp, color = muted, modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+            OutlinedButton(onClick = { scan() }, enabled = !paused, modifier = Modifier.padding(top = 8.dp)) {
+                Text("SCAN THE HEAD UNIT", fontSize = 12.sp)
+            }
         }
     }
 }

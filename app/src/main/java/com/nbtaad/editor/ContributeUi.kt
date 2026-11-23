@@ -47,11 +47,11 @@ fun ContributeScreen(vm: MainViewModel) {
                                 "What is sent",
                                 "Nothing is sent by the app. It makes one zip on this phone from the files you tick, and " +
                                     "you attach it to the issue yourself, on GitHub.\n\n" +
-                                    "Before a log goes into the zip, the WiFi password of the car's hotspot, the VIN and the " +
-                                    "car's GPS positions (the daemon writes all three into its log) are hidden. The zip " +
+                                    "Before a log goes into the zip, the WiFi password of the vehicle's hotspot, the VIN and the " +
+                                    "vehicle's GPS positions (the daemon writes all three into its log) are hidden. The zip " +
                                     "also holds about.txt: this app's version, the phone, and what was hidden.\n\n" +
                                     "The daemon's logs are in the head unit's memory: they are gone after a reboot, so " +
-                                    "pack them before you restart the car. Reading is slow (about 30 KB/s).",
+                                    "pack them before you restart the vehicle. Reading is slow (about 30 KB/s).",
                                 mono = false,
                             ) { info = false }
                         }

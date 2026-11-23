@@ -7,6 +7,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
@@ -43,6 +44,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nbtaad.editor.addon.AddOnCatalog
 import com.nbtaad.editor.addon.Fit
 import com.nbtaad.editor.addon.IconSpec
 import com.nbtaad.editor.addon.MenuLook
@@ -114,17 +116,25 @@ fun MenuLookScreen(vm: MainViewModel) {
         HeadUnitGate(vm, paused = m.working)
 
         MlBox(Modifier.padding(top = 14.dp)) {
-            Text(s.kit.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-            Text(
-                if (s.kit.known) "✓ Identical to the published build" else "! Not identical to a build the app knows",
-                fontSize = 12.sp, color = if (s.kit.known) Green else Amber, modifier = Modifier.padding(top = 2.dp),
-            )
-            Text(s.origin, fontSize = 11.sp, color = muted, modifier = Modifier.padding(top = 2.dp))
+            val menuLookEntry = AddOnCatalog.ENTRIES.first { it.id == "aa-menu-look" }
+            val latestV = vm.addOns.latest(menuLookEntry)?.version
+            val newer = latestV != null && s.kit.version != null && AddOnCatalog.isNewer(latestV, s.kit.version)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text(s.kit.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                when {
+                    newer -> TextButton(
+                        onClick = { vm.chooseAddOns() },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        modifier = Modifier.height(28.dp),
+                    ) { Text("UPDATE", fontSize = 11.sp, color = Amber) }
+                    latestV != null -> Text("Latest version", fontSize = 12.sp, color = Green)
+                }
+            }
             HorizontalDivider(Modifier.padding(vertical = 10.dp), color = MaterialTheme.colorScheme.outlineVariant)
             Text("On the head unit", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             val r = m.report
             if (r == null) {
-                Text(if (noCar) "No car connected yet." else "Not looked at yet.", fontSize = 13.sp, color = muted, modifier = Modifier.padding(top = 2.dp))
+                Text(if (noCar) "No head unit connected yet." else "Not looked at yet.", fontSize = 13.sp, color = muted, modifier = Modifier.padding(top = 2.dp))
             } else {
                 Text(
                     if (m.brandsFound.isEmpty()) "No menu texts of a known brand (BMW, MINI) were found."
@@ -145,7 +155,7 @@ fun MenuLookScreen(vm: MainViewModel) {
         }
         if (noCar) {
             Text(
-                "No car found. The buttons work once the phone is on the car's WiFi. The file stays on this phone until then.",
+                "No SSH connection to the head unit yet. The buttons work once it is reachable. The file stays on this phone until then.",
                 fontSize = 12.sp, color = Amber, modifier = Modifier.padding(top = 10.dp),
             )
         }
@@ -320,7 +330,7 @@ private fun Box96(img: ImageBitmap) {
 }
 
 /** The head unit's own tile picture, Baidu's icon cleared out of it, before the chosen icon is drawn over it: so that
- *  can be checked (did the clearing work?) without applying anything or going back to the car. */
+ *  can be checked (did the clearing work?) without applying anything or going back to the vehicle. */
 @Composable
 private fun FactoryPreview(img: ImageBitmap) {
     androidx.compose.foundation.layout.Box(Modifier.size(width = 64.dp, height = 96.dp).background(Color(0xFF30303A), RoundedCornerShape(8.dp)).padding(4.dp)) {
@@ -445,7 +455,7 @@ private fun MenuLookInfo(onClose: () -> Unit) {
                     "The label is changed on the head unit itself by the kit's aa-look program, which the app copies into the head unit's memory and runs there. Nothing is installed and no PC tools are needed.",
                     "Unlike the tile, this changes head-unit files: the menu text file (text.db) and the pictures you choose. Before a file is replaced the app keeps the factory copy in /opt/aa/menu-look-backup (the same folder and layout as the author's scripts), and RESTORE puts every one back byte for byte.",
                     "Pictures need exactly the size of the original. MAKE FROM A PICTURE does that for you: pick one picture (or let the AI draw an icon from your words) and the app scales it to every place, then shows each result. None is included: the Android Auto logo is a Google trademark and the tile backgrounds are BMW or MINI artwork.",
-                    "For BMW, the three tall tile pictures are 72×378. Your icon is put over the head unit's own tile picture, with the Baidu CarLife icon cleared out of it first (read once from it, with the car connected), so the usual background stays but Baidu's icon does not. Without the head unit's own picture (no car connected yet, or LOOK AT THE HEAD UNIT not pressed), the icon is centred on its own instead, with empty space around it. Either way, how it actually looks in the iDrive menu cannot be fully seen here; if it looks off, RESTORE brings the originals back.",
+                    "For BMW, the three tall tile pictures are 72×378. Your icon is put over the head unit's own tile picture, with the Baidu CarLife icon cleared out of it first (read once from it, with the vehicle connected), so the usual background stays but Baidu's icon does not. Without the head unit's own picture (no head unit connected yet, or LOOK AT THE HEAD UNIT not pressed), the icon is centred on its own instead, with empty space around it. Either way, how it actually looks in the iDrive menu cannot be fully seen here; if it looks off, RESTORE brings the originals back.",
                     "The app does not run the zip's own scripts: it uses aa-look and does the same steps itself, with checks of its own.",
                 )
                 for (l in lines) Text("• $l", fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))

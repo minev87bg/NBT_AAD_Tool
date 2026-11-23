@@ -113,7 +113,7 @@ class TileController(
             try {
                 NetworkBinder.bindToLocalNetwork(ctx)
                 val rep = Reporter(say = { t, _ -> step = t }, progress = { _, _, _ -> })
-                val r = runOnHeadUnit(host, rescan, onRescan = { step = "Looking for the car…" }, whyNot = problem) {
+                val r = runOnHeadUnit(host, rescan, onRescan = { step = "Looking for the vehicle…" }, whyNot = problem) {
                     TileHeadUnit.run(it, action, kit, sentMode, rep)
                 }
                 report = r

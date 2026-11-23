@@ -30,8 +30,8 @@ import kotlinx.coroutines.delay
 // =========================================================================
 
 /**
- * Asked once when a page that reads the logs is opened after a good DETECT CAR: is the WiFi the car answered on the
- * dongle's? With its name and password the app can bring the phone back to it (see [ConnectAgainDialog]).
+ * Asked once when a page that reads the logs is opened after a good look for the vehicle: is the WiFi it answered
+ * on the dongle's? With its name and password the app can bring the phone back to it (see [ConnectAgainDialog]).
  */
 @Composable
 internal fun DongleDialog(vm: MainViewModel) {
@@ -65,7 +65,7 @@ internal fun DongleDialog(vm: MainViewModel) {
                     if (showInfo) {
                         InfoBalloon(
                             "Why the WiFi name and password",
-                            "When Android Auto starts, the car pulls the phone off the dongle's WiFi onto its own, and the app " +
+                            "When Android Auto starts, the vehicle pulls the phone off the dongle's WiFi onto its own, and the app " +
                                 "can no longer reach the head unit.\n\nWith the dongle's WiFi name and password the app can " +
                                 "bring the phone back by itself (CONNECT AGAIN), so you do not have to pick the network in " +
                                 "Android's list.\n\nThey stay in this app's memory only and are forgotten when the app is " +
@@ -81,7 +81,7 @@ internal fun DongleDialog(vm: MainViewModel) {
         text = {
             Column {
                 Text(
-                    "The car answered on the WiFi below. If that is the dongle's WiFi, give its name and password.",
+                    "The vehicle answered on the WiFi below. If that is the dongle's WiFi, give its name and password.",
                     fontSize = 13.sp,
                 )
                 Spacer(Modifier.height(10.dp))
@@ -165,7 +165,7 @@ internal fun ConnectAgainDialog(vm: MainViewModel) {
                     if (showInfo) {
                         InfoBalloon(
                             "Connect again",
-                            "Android Auto starts over Bluetooth and then moves the phone onto the car's own WiFi. While " +
+                            "Android Auto starts over Bluetooth and then moves the phone onto the vehicle's own WiFi. While " +
                                 "Bluetooth is on, the phone is pulled away again as soon as it joins the dongle.\n\nSo: turn " +
                                 "Bluetooth off (the switch is in the quick settings: pull the top bar down; the settings page " +
                                 "of some phones only lists devices), then press CONNECT. Android asks you to allow the connection to the dongle's " +

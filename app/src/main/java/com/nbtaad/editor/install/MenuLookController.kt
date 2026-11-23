@@ -372,7 +372,7 @@ class MenuLookController(
             try {
                 NetworkBinder.bindToLocalNetwork(ctx)
                 val rep = Reporter(say = { t, _ -> step = t }, progress = { _, _, _ -> })
-                val r = runOnHeadUnit(host, rescan, onRescan = { step = "Looking for the car…" }, whyNot = problem) {
+                val r = runOnHeadUnit(host, rescan, onRescan = { step = "Looking for the vehicle…" }, whyNot = problem) {
                     MenuLookHeadUnit.run(it, action, kit, useBrand, useLabel, pics, rep)
                 }
                 report = r

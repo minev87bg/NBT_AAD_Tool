@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -34,6 +35,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nbtaad.editor.addon.AddOnCatalog
 import com.nbtaad.editor.addon.TileLogic
 import com.nbtaad.editor.install.TileController
 import com.nbtaad.editor.install.TileScripts
@@ -78,18 +80,26 @@ fun TileScreen(vm: MainViewModel) {
 
         // the file, and the head unit
         Box2(Modifier.padding(top = 14.dp)) {
-            Text(s.kit.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-            Text(
-                if (s.kit.known) "✓ Identical to the published build" else "! Not identical to a build the app knows",
-                fontSize = 12.sp, color = if (s.kit.known) Green else Amber, modifier = Modifier.padding(top = 2.dp),
-            )
-            Text(s.origin, fontSize = 11.sp, color = muted, modifier = Modifier.padding(top = 2.dp))
+            val tileEntry = AddOnCatalog.ENTRIES.first { it.id == "nbt-aa-tile" }
+            val latestV = vm.addOns.latest(tileEntry)?.version
+            val newer = latestV != null && s.kit.version != null && AddOnCatalog.isNewer(latestV, s.kit.version)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text(s.kit.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                when {
+                    newer -> TextButton(
+                        onClick = { vm.chooseAddOns() },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        modifier = Modifier.height(28.dp),
+                    ) { Text("UPDATE", fontSize = 11.sp, color = Amber) }
+                    latestV != null -> Text("Latest version", fontSize = 12.sp, color = Green)
+                }
+            }
             HorizontalDivider(Modifier.padding(vertical = 10.dp), color = MaterialTheme.colorScheme.outlineVariant)
             Text("On the head unit", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             val r = tile.report
             if (r == null) {
                 Text(
-                    if (noCar) "No car connected yet." else "Not looked at yet.",
+                    if (noCar) "No head unit connected yet." else "Not looked at yet.",
                     fontSize = 13.sp, color = muted, modifier = Modifier.padding(top = 2.dp),
                 )
             } else {
@@ -128,7 +138,7 @@ fun TileScreen(vm: MainViewModel) {
 
         if (noCar) {
             Text(
-                "No car found. The buttons work once the phone is on the car's WiFi. The file stays on this phone until then.",
+                "No SSH connection to the head unit yet. The buttons work once it is reachable. The file stays on this phone until then.",
                 fontSize = 12.sp, color = Amber, modifier = Modifier.padding(top = 10.dp),
             )
         }
@@ -267,7 +277,7 @@ private fun TileInfo(onClose: () -> Unit) {
                     "nbt-aa-tile is a small separate program (aa-tile) that runs next to nbt-aad and shows an Android Auto entry in the iDrive main menu. Pressing it brings Android Auto back.",
                     "Made by deathwalker80 on the work of RRudkinp (the mechanism), Sq00ky/nanaisu, Keukenrol123522 and dn00. Licence: PolyForm Noncommercial 1.0.0.",
                     "It needs nbt-aad ${TileLogic.NEEDS_DAEMON} or newer.",
-                    "The author published build 5 as not yet run in a car. Test first.",
+                    "The author published build 5 as not yet run in a vehicle. Test first.",
                     "The test copies the program into the head unit's memory and runs it for ${TileScripts.TEST_SECONDS} seconds. Nothing is written to the flash.",
                     "The install writes /opt/aa-tile/aa-tile and aa-tile-launcher.sh, keeps the original start_webserver.sh as /opt/aa-tile/start_webserver.sh.original and adds two lines at the top of start_webserver.sh (nothing else in it changes). If the system partition cannot be written, nothing is changed.",
                     "Quick stop without removing: an empty file NO-AA-TILE on a USB stick.",

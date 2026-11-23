@@ -20,7 +20,7 @@ object AiLogic {
     const val SYSTEM_PROMPT =
         "You summarize one GitHub issue or pull request of the open-source project Supra-iDrive6-Android-Auto " +
             "(NBT-AAD: a native Android Auto daemon for BMW / Toyota Supra NBT Evo head units; its settings are " +
-            "environment variables named NBT_SOMETHING). The reader owns such a car and uses a phone app; they are " +
+            "environment variables named NBT_SOMETHING). The reader owns such a vehicle and uses a phone app; they are " +
             "not necessarily a programmer.\n\n" +
             "Write short, plain English in Markdown, in this shape:\n" +
             "- one sentence: what the page is about and whether it is open, closed or merged\n" +

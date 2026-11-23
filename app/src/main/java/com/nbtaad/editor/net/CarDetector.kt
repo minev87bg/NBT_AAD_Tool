@@ -342,12 +342,12 @@ object CarDetector {
                 AppLog.d("Detect", "$c answers on port 22 but is not the head unit (it says \"${b ?: "nothing"}\")")
                 continue
             }
-            AppLog.i("Detect", "No car gateway, but $c is the router of this WiFi and its SSH says \"$b\": the head unit, over the car's Android Auto WiFi")
+            AppLog.i("Detect", "No vehicle gateway, but $c is the router of this WiFi and its SSH says \"$b\": the head unit, over the vehicle's Android Auto WiFi")
             val folders = localFolders(c)
             return if (folders < 0) {
                 DetectResult(
                     huIp = c, sshOpen = false, viaCarWifi = true,
-                    problem = "The head unit answers on SSH over the car's WiFi, but the login did not work. Press DETECT CAR again.",
+                    problem = "The head unit answers on SSH over the vehicle's own WiFi, but the login did not work. Try again.",
                 )
             } else {
                 DetectResult(huIp = c, sshOpen = true, viaCarWifi = true)
@@ -362,8 +362,10 @@ object CarDetector {
     }
 
     /**
-     * The whole detection used by the DETECT CAR button (and by "Check Connection"). [hints]: the routers, DHCP and DNS
-     * servers the phone was given (see [findHeadUnitOnRouter]).
+     * The full detection: the vehicle's own gateway (ZGW) and, through it, the head unit. Only Prepare headunit needs
+     * this (checking/fixing codings, and the ZGW-based reset both go through the gateway); everything else only needs
+     * an SSH connection, which [detectSsh] looks for without this ZGW step. [hints]: the routers, DHCP and DNS servers
+     * the phone was given (see [findHeadUnitOnRouter]).
      */
     fun detect(hints: Collection<String> = emptyList(), progress: (String) -> Unit): DetectResult {
         progress("Looking at the phone's networks…")
@@ -371,12 +373,12 @@ object CarDetector {
         if (nets.isEmpty()) {
             return DetectResult(
                 problem = "The phone has no WiFi, hotspot or Ethernet network. " +
-                    "Switch your hotspot on / join the car's WiFi and press DETECT CAR again."
+                    "Switch your hotspot on / join the vehicle's WiFi and try again."
             )
         }
         progress(
             "Networks: " + nets.joinToString { "${it.name} ${it.ip}/${it.prefix}" } +
-                "\nLooking for the car gateway (ZGW)…"
+                "\nLooking for the vehicle gateway (ZGW)…"
         )
         val ident = discoverZgw(nets)
         var zgw = ident?.ip
@@ -397,20 +399,54 @@ object CarDetector {
         }
         // no VIN, no car: a device that merely has the port open is not a gateway
         if (zgw == null || vin == null) {
-            progress("No car gateway here. Looking for the head unit on this WiFi…")
+            progress("No vehicle gateway here. Looking for the head unit on this WiFi…")
             findHeadUnitOnRouter(nets, hints)?.let { r ->
-                if (r.pfBlocked) AppLog.i("Detect", "Result: Android Auto answers on the car's own WiFi but SSH does not: the packet filter (PF) blocks it")
-                else AppLog.i("Detect", "Result: head unit ${r.huIp} over the car's own WiFi (no gateway), SSH open ${r.sshOpen}")
+                if (r.pfBlocked) AppLog.i("Detect", "Result: Android Auto answers on the vehicle's own WiFi but SSH does not: the packet filter (PF) blocks it")
+                else AppLog.i("Detect", "Result: head unit ${r.huIp} over the vehicle's own WiFi (no gateway), SSH open ${r.sshOpen}")
                 return r
             }
             return DetectResult(
-                problem = "No car detected. Verify the WiFi connection (phone, dongle and car in the same " +
-                    "network) and press DETECT CAR again."
-            ).also { AppLog.i("Detect", "Result: no car (gateway $zgw, VIN $vin)") }
+                problem = "No vehicle detected. Verify the connection (phone, dongle and vehicle on the same " +
+                    "network) and try again."
+            ).also { AppLog.i("Detect", "Result: no vehicle (gateway $zgw, VIN $vin)") }
         }
         progress("Gateway found at $zgw. Looking for the head unit…")
         val (hu, open) = findHeadUnit(nets, zgw)
         AppLog.i("Detect", "Result: gateway $zgw, VIN $vin, head unit $hu, SSH open $open")
         return DetectResult(zgwIp = zgw, vin = vin, huIp = hu, sshOpen = open)
+    }
+
+    /**
+     * SSH only, no ZGW: a general sweep of the phone's local networks for the head unit's SSH (works over a direct
+     * ENET connection, where the head unit is just some address on the swept subnet), falling back to
+     * [findHeadUnitOnRouter] for the vehicle's own Android Auto WiFi (where the head unit is this WiFi's router) and
+     * its packet-filter diagnosis. Used by everything except Prepare headunit, which needs the gateway too (codings,
+     * and the gateway's own reset) and so uses [detect] instead.
+     */
+    fun detectSsh(hints: Collection<String> = emptyList(), progress: (String) -> Unit): DetectResult {
+        progress("Looking at the phone's networks…")
+        val nets = localNetworks()
+        if (nets.isEmpty()) {
+            return DetectResult(
+                problem = "The phone has no WiFi, hotspot or Ethernet network. " +
+                    "Switch your hotspot on / join the vehicle's WiFi and try again."
+            )
+        }
+        progress("Networks: " + nets.joinToString { "${it.name} ${it.ip}/${it.prefix}" } + "\nLooking for the head unit's SSH…")
+        val (hu, open) = findHeadUnit(nets, zgw = null)
+        if (hu != null) {
+            AppLog.i("Detect", "Result (SSH only): head unit $hu, SSH open $open")
+            return DetectResult(huIp = hu, sshOpen = open)
+        }
+        progress("No head unit found on this network. Looking for it as the vehicle's own WiFi router…")
+        findHeadUnitOnRouter(nets, hints)?.let { r ->
+            if (r.pfBlocked) AppLog.i("Detect", "Result: Android Auto answers on the vehicle's own WiFi but SSH does not: the packet filter (PF) blocks it")
+            else AppLog.i("Detect", "Result: head unit ${r.huIp} over the vehicle's own WiFi (no gateway), SSH open ${r.sshOpen}")
+            return r
+        }
+        return DetectResult(
+            problem = "No head unit found. Verify the connection (ENET cable, or the phone on the vehicle's own " +
+                "WiFi) and try again."
+        ).also { AppLog.i("Detect", "Result (SSH only): no head unit") }
     }
 }

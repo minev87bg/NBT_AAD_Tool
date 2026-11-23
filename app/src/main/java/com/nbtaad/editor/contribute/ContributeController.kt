@@ -112,14 +112,14 @@ class ContributeController(
     }
 
     private fun lookingNote(): String =
-        if (host() == null) "No car known yet. Looking for the car…" else "No connection. Looking for the car again…"
+        if (host() == null) "No vehicle known yet. Looking for the vehicle…" else "No connection. Looking for the vehicle again…"
 
     /** Looks at the head unit for the log files (one quick command). */
     fun look() {
         if (working) return
         looking = true
         lookError = false
-        lookMessage = if (host() == null) "Looking for the car…" else "Looking at the head unit…"
+        lookMessage = if (host() == null) "Looking for the vehicle…" else "Looking at the head unit…"
         scope.launch(Dispatchers.IO) {
             try {
                 NetworkBinder.bindToLocalNetwork(ctx)
@@ -194,7 +194,7 @@ class ContributeController(
         cancelSessions = false
         sessionsLooking = true
         sessionError = false
-        sessionMessage = if (host() == null) "Looking for the car…" else "Looking through ${l.name} on the USB stick…"
+        sessionMessage = if (host() == null) "Looking for the vehicle…" else "Looking through ${l.name} on the USB stick…"
         scope.launch(Dispatchers.IO) {
             try {
                 NetworkBinder.bindToLocalNetwork(ctx)

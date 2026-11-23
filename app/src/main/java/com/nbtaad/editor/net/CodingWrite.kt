@@ -113,7 +113,7 @@ object CodingWrite {
         }
         steps.add(WriteStep("Sign locally", true, "${sig.size}-byte signature"))
         if (!NcdSigning.verify(mem, ncdKey)) {
-            steps.add(WriteStep("Verify signature locally", false, "does not verify — nothing was sent to the car"))
+            steps.add(WriteStep("Verify signature locally", false, "does not verify — nothing was sent to the vehicle"))
             return WriteOutcome(steps, false, null)
         }
         steps.add(WriteStep("Verify signature locally", true, "OK"))
@@ -123,7 +123,7 @@ object CodingWrite {
                 val (vin, vinStep) = readVinFrom(session)
                 steps.add(vinStep)
                 if (vin == null || !vin.equals(ownVin.trim(), ignoreCase = true)) {
-                    steps.add(WriteStep("Confirm VIN", false, "car is ${vin ?: "unreadable"}, expected ${ownVin.trim()} — refusing to write"))
+                    steps.add(WriteStep("Confirm VIN", false, "vehicle is ${vin ?: "unreadable"}, expected ${ownVin.trim()} — refusing to write"))
                     return WriteOutcome(steps, false, null)
                 }
                 steps.add(WriteStep("Confirm VIN", true, vin))
@@ -231,7 +231,7 @@ object CodingWrite {
                 val (vin, vinStep) = readVinFrom(session)
                 steps.add(vinStep)
                 if (vin == null || !vin.equals(ownVin.trim(), ignoreCase = true)) {
-                    steps.add(WriteStep("Confirm VIN", false, "car is ${vin ?: "unreadable"}, expected ${ownVin.trim()} — stopping"))
+                    steps.add(WriteStep("Confirm VIN", false, "vehicle is ${vin ?: "unreadable"}, expected ${ownVin.trim()} — stopping"))
                     return steps
                 }
                 steps.add(WriteStep("Confirm VIN", true, vin))
