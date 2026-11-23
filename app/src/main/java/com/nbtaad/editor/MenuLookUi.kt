@@ -193,10 +193,18 @@ fun MenuLookScreen(vm: MainViewModel) {
             m.source?.let { src -> SourceBox(m, src) }
             for (slot in slots) {
                 val c = m.pictures[slot.rel]
+                val factory = m.factoryTiles[slot.rel]
                 MlBox(Modifier.padding(top = 8.dp)) {
                     Row {
                         if (c != null && c.problem == null) {
                             PicturePreview(c.bytes)
+                            Spacer(Modifier.width(10.dp))
+                        }
+                        if (factory != null) {
+                            Column {
+                                FactoryPreview(remember(factory) { bitmapOf(factory) })
+                                Text("cleared", fontSize = 9.sp, color = muted)
+                            }
                             Spacer(Modifier.width(10.dp))
                         }
                         Column(Modifier.weight(1f)) {
@@ -307,6 +315,15 @@ private fun bitmapOf(p: com.nbtaad.editor.addon.Pixels): ImageBitmap =
 @Composable
 private fun Box96(img: ImageBitmap) {
     androidx.compose.foundation.layout.Box(Modifier.size(64.dp).background(Color(0xFF30303A), RoundedCornerShape(8.dp)).padding(4.dp)) {
+        Image(img, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+    }
+}
+
+/** The head unit's own tile picture, Baidu's icon cleared out of it, before the chosen icon is drawn over it: so that
+ *  can be checked (did the clearing work?) without applying anything or going back to the car. */
+@Composable
+private fun FactoryPreview(img: ImageBitmap) {
+    androidx.compose.foundation.layout.Box(Modifier.size(width = 64.dp, height = 96.dp).background(Color(0xFF30303A), RoundedCornerShape(8.dp)).padding(4.dp)) {
         Image(img, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
     }
 }

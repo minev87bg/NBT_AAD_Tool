@@ -62,24 +62,32 @@ object MenuLookHeadUnit {
 
     /**
      * The real "Main-menu tile" pictures for [brand] (not the small plain icon places), read once from the head
-     * unit, with the Baidu CarLife icon they are drawn with erased ([PictureMaker.withoutSubject]) so a chosen icon
-     * can be drawn over a clean background instead of over Baidu's or over empty space. A place that cannot be
-     * read, or whose icon cannot be told apart from its background, is simply left out: the icon is then made the
+     * unit, with the Baidu CarLife icon they are drawn with erased so a chosen icon can be drawn over a clean
+     * background instead of over Baidu's or over empty space. The places sharing one size (the three highlight
+     * states of a BMW tile, say) are cleared together, by what stays the same across them
+     * ([PictureMaker.withoutSubjects]: more reliable, since Baidu's icon is most likely the one thing that does), one
+     * at a time only where that is not possible (one picture on its own, as MINI has). A place that cannot be read,
+     * or whose icon cannot be told apart from its background at all, is simply left out: the icon is then made the
      * old way, on its own, for that place only.
      */
     fun fetchFactoryTiles(host: String, brand: String): Map<String, Pixels> {
-        val out = LinkedHashMap<String, Pixels>()
+        val read = LinkedHashMap<String, Pixels>()
         SshSession(host).use { ssh ->
             for (slot in MenuLook.slots(brand)) {
                 if (!slot.what.startsWith("Main-menu tile")) continue
                 val bytes = fetchOriginal(ssh, slot.rel) ?: continue
                 try {
                     val px = PictureFiles.decode(bytes)
-                    if (px.width == slot.width && px.height == slot.height) out[slot.rel] = PictureMaker.withoutSubject(px)
+                    if (px.width == slot.width && px.height == slot.height) read[slot.rel] = px
                 } catch (_: Exception) {
                     // not a usable PNG: left out, the icon is made the old way for this one place
                 }
             }
+        }
+        val out = LinkedHashMap<String, Pixels>()
+        for (group in read.entries.groupBy { it.value.width to it.value.height }.values) {
+            val cleaned = PictureMaker.withoutSubjects(group.map { it.value })
+            group.forEachIndexed { i, e -> out[e.key] = cleaned[i] }
         }
         return out
     }

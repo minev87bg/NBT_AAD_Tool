@@ -325,12 +325,75 @@ object PictureMaker {
 
     /**
      * [src] (a real picture of a head unit's place, icon included) with its one icon erased, so a different icon can
-     * be drawn over a clean background instead of over the old one. Returns [src] unchanged when no clear, compact
-     * icon is found in it: a guessed fill then risks doing more harm than good.
+     * be drawn over a clean background instead of over the old one. Tried at a few tolerances, tighter first, so a
+     * softly drawn (anti-aliased) edge is still found as long as some tolerance makes a clear, compact shape of it;
+     * [src] is returned unchanged when none does, since a guessed fill then risks doing more harm than good.
      */
-    fun withoutSubject(src: Pixels, tolerance: Int = 24): Pixels {
-        val mask = island(src, tolerance) ?: return src
-        return fillMasked(src, mask)
+    fun withoutSubject(src: Pixels): Pixels {
+        for (t in intArrayOf(10, 16, 22, 28, 36)) {
+            val mask = island(src, t) ?: continue
+            return fillMasked(src, mask)
+        }
+        return src
+    }
+
+    /**
+     * The one shape that every one of [images] (the same place's own picture, once per highlight state: inactive,
+     * in focus, pressed, say) keeps close to the same colour while the rest of the picture changes a good deal from
+     * one image to the next: the menu look's own icon, most likely, since that is what stays while the state around
+     * it is coloured differently. A pixel counts as kept when every image is within [tolerance] of the first one
+     * there; the shape is then narrowed to its biggest group of neighbouring such pixels, so a corner the pictures
+     * all happen to leave the same colour (plain background, unaffected by the highlight) is not swept in too. Null
+     * when fewer than two pictures are given, their sizes differ, or no clear, compact, non-trivial shape is found.
+     */
+    fun commonSubject(images: List<Pixels>, tolerance: Int = 20): BooleanArray? {
+        if (images.size < 2) return null
+        val w = images[0].width
+        val h = images[0].height
+        if (images.any { it.width != w || it.height != h }) return null
+        val ref = images[0].argb
+        val same = BooleanArray(w * h) { i -> images.all { colorDistance(it.argb[i], ref[i]) <= tolerance } }
+
+        val label = IntArray(w * h) { -1 }
+        val queue = IntArray(w * h)
+        val sizes = ArrayList<Int>()
+        for (start in 0 until w * h) {
+            if (!same[start] || label[start] >= 0) continue
+            val id = sizes.size
+            var head = 0
+            var tail = 0
+            queue[tail++] = start
+            label[start] = id
+            while (head < tail) {
+                val i = queue[head++]
+                val x = i % w
+                val y = i / w
+                fun tryNext(j: Int) { if (same[j] && label[j] < 0) { label[j] = id; queue[tail++] = j } }
+                if (x > 0) tryNext(i - 1)
+                if (x < w - 1) tryNext(i + 1)
+                if (y > 0) tryNext(i - w)
+                if (y < h - 1) tryNext(i + w)
+            }
+            sizes += tail
+        }
+        if (sizes.isEmpty()) return null
+        val bestId = sizes.indices.maxBy { sizes[it] }
+        val bestSize = sizes[bestId]
+        if (bestSize == 0 || bestSize > w * h * 6 / 10) return null
+        return BooleanArray(w * h) { label[it] == bestId }
+    }
+
+    /**
+     * [images] (the same place, once per state) with each one's icon erased: found first by what stays the same
+     * across all of them while the rest changes ([commonSubject], the more reliable of the two when there is more
+     * than one state to compare), and only state by state ([withoutSubject]) when that finds nothing clear - which
+     * is always the case for a brand with only one state picture for a place. A picture this cannot find a clear
+     * icon in at all comes back unchanged.
+     */
+    fun withoutSubjects(images: List<Pixels>): List<Pixels> {
+        val shared = commonSubject(images)
+        if (shared != null) return images.map { fillMasked(it, shared) }
+        return images.map { withoutSubject(it) }
     }
 }
 
