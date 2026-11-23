@@ -285,6 +285,17 @@ object Hsfz {
 
         fun enterSession(sub: Int): Outcome = exchange(byteArrayOf(0x10, sub.toByte()))
         fun securityAccessSeed(level: Int): Outcome = exchange(byteArrayOf(0x27, level.toByte()))
+
+        /**
+         * Coding-level (0x01) requestSeed, confirmed on-car 2026-11-23: a bare `27 01` gets NRC 0x13
+         * (incorrectMessageLengthOrInvalidFormat) - this ECU wants a 4-byte testerId appended, matching
+         * docs/keys.md's "4-byte testerId sent with requestSeed (00000000)" wording literally rather than
+         * only as an input to the later key math. `27 01 00 00 00 00` gets back `67 01 <8-byte seed>`.
+         * [testerId] defaults to all-zero per that doc; only override it if a car is ever found that wants
+         * something else here.
+         */
+        fun securityAccessSeedCoding(testerId: ByteArray = ByteArray(4)): Outcome =
+            exchange(byteArrayOf(0x27, 0x01) + testerId)
         fun securityAccessSendKey(level: Int, key: ByteArray): Outcome =
             exchange(byteArrayOf(0x27, level.toByte()) + key, timeoutMs = 6000)
         fun readDataByIdentifier(did: Int): Outcome =

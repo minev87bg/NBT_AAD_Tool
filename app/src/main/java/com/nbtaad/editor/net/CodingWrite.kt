@@ -142,7 +142,10 @@ object CodingWrite {
                 steps.add(describeOutcome("Enter coding session", coding))
                 if (coding !is Hsfz.CodingSession.Outcome.Positive) return WriteOutcome(steps, false, null)
 
-                val seedOutcome = session.securityAccessSeed(0x01)
+                // Confirmed on-car via probeSecurityAccessLevels(): the bare 2-byte `27 01` this used to
+                // send gets NRC 0x13 (format/length). This ECU wants a 4-byte testerId (00000000)
+                // appended - see the comment on securityAccessSeedCoding().
+                val seedOutcome = session.securityAccessSeedCoding()
                 steps.add(describeOutcome("SecurityAccess: request seed", seedOutcome))
                 val seed = (seedOutcome as? Hsfz.CodingSession.Outcome.Positive)?.data
                     ?.let { if (it.size >= 10) it.copyOfRange(2, 10) else null }
