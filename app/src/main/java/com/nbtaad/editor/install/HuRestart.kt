@@ -10,10 +10,13 @@ import com.nbtaad.editor.log.AppLog
  * appreset`, which restarts only the HMI (the iDrive software): the report says which of the two it was (`ST kind full` or
  * `ST kind hmi`), because only a full restart runs the start files again (the tile's boot hook is one). Both are run after a
  * few seconds' delay, so that the report can be read first. Neither command needs to sit in one of the usual places: when
- * it is not, a plain, read-only search of the whole file system looks for it by name before giving up (this costs nothing
- * when the fast check above already found it, and nothing worse than before when the wider search finds nothing either -
- * a shell with no `find` just answers empty, the same as not having the command). A head unit with neither, anywhere,
- * says so, and the person is told to hold the power button, which is what the projects' guides say anyway.
+ * it is not, a plain, read-only search of the whole file system (not stopping at the edge of one disk, since `/opt` and
+ * the others can each be their own mounted place on a system like this) looks for it by name before giving up. The search
+ * proves itself first, against a file already known to be there (the plugin's own program): if that is not found either,
+ * the search itself cannot be trusted, and the report says so plainly instead of claiming the two commands are absent
+ * when the truth may just be that this shell's `find` cannot be used this way. This costs nothing when the fast check
+ * above already found the command; a head unit with neither, anywhere a working search can reach, says so, and the person
+ * is told to hold the power button, which is what the projects' guides say anyway.
  */
 object HuRestart {
     private val places = listOf("/sbin", "/usr/sbin", "/bin", "/usr/bin", "/proc/boot", "/usr/local/bin")
@@ -41,12 +44,18 @@ object HuRestart {
                 [ -z "¤APP" ] && APP=¤R¤d/OnOffDSICommander
               fi
             done
-            if [ -z "¤CMD" ]; then
-              F=¤(find ¤R/ -xdev -maxdepth 9 -type f -name shutdown 2>/dev/null | head -1)
+            SEARCHOK=""
+            if [ -z "¤CMD" ] || [ -z "¤APP" ]; then
+              PROOF=¤(find ¤R/opt -maxdepth 3 -type f -name nbt-aad 2>/dev/null | head -1)
+              [ -n "¤PROOF" ] && SEARCHOK=yes
+              echo "INFO a wider search's own test (looking for the plugin's own program, already known to be in ¤R/opt/aa) found [¤PROOF], so the search itself ¤([ -n "¤SEARCHOK" ] && echo can || echo cannot) be trusted here"
+            fi
+            if [ -z "¤CMD" ] && [ -n "¤SEARCHOK" ]; then
+              F=¤(find ¤R/ -maxdepth 9 -type f -name shutdown 2>/dev/null | head -1)
               if [ -n "¤F" ]; then echo "INFO shutdown found by a wider search, at ¤F"; CMD=¤F; fi
             fi
-            if [ -z "¤APP" ]; then
-              F=¤(find ¤R/ -xdev -maxdepth 9 -type f -name OnOffDSICommander 2>/dev/null | head -1)
+            if [ -z "¤APP" ] && [ -n "¤SEARCHOK" ]; then
+              F=¤(find ¤R/ -maxdepth 9 -type f -name OnOffDSICommander 2>/dev/null | head -1)
               if [ -n "¤F" ]; then echo "INFO OnOffDSICommander found by a wider search, at ¤F"; APP=¤F; fi
             fi
             if [ -n "¤CMD" ]; then
@@ -63,7 +72,12 @@ object HuRestart {
               echo "END 0"
               exit 0
             fi
-            echo "INFO a wider search of the whole file system found neither command either"
+            if [ -n "¤SEARCHOK" ]; then
+              for n in reboot poweroff halt; do
+                F=¤(find ¤R/ -maxdepth 9 -type f -name "¤n" 2>/dev/null | head -1)
+                [ -n "¤F" ] && echo "INFO by the way, ¤n exists at ¤F too (not tried: not known to be safe to use here)"
+              done
+            fi
             echo "ERR $NO_COMMAND"
             echo "END 1"
             exit 1
