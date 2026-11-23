@@ -19,6 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -119,9 +120,7 @@ fun MenuLookScreen(vm: MainViewModel) {
                 fontSize = 12.sp, color = if (s.kit.known) Green else Amber, modifier = Modifier.padding(top = 2.dp),
             )
             Text(s.origin, fontSize = 11.sp, color = muted, modifier = Modifier.padding(top = 2.dp))
-        }
-
-        MlBox(Modifier.padding(top = 10.dp)) {
+            HorizontalDivider(Modifier.padding(vertical = 10.dp), color = MaterialTheme.colorScheme.outlineVariant)
             Text("On the head unit", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             val r = m.report
             if (r == null) {
@@ -151,8 +150,8 @@ fun MenuLookScreen(vm: MainViewModel) {
             )
         }
 
-        // brand
-        Text("1  Which menu", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 18.dp))
+        // brand and label
+        Text("1  Menu & label", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 18.dp))
         if (m.brandsFound.isEmpty()) {
             Text("Press LOOK AT THE HEAD UNIT: the app finds out which menu texts the head unit has.", fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
         } else {
@@ -164,13 +163,10 @@ fun MenuLookScreen(vm: MainViewModel) {
             }
             Text("A normal BMW (and a Supra with the BMW menu) uses \"BMW\".", fontSize = 11.sp, color = muted)
         }
-
-        // label
-        Text("2  The label", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 18.dp))
         OutlinedTextField(
             value = m.label, onValueChange = { m.label = it },
             singleLine = true, enabled = !m.working, isError = m.labelProblem != null,
-            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
             label = { Text("Replaces \"n. t. a. (ASIA)\" / \"CarLife\"") },
         )
         m.labelProblem?.let { Text(it, fontSize = 11.sp, color = Red) }
@@ -178,7 +174,7 @@ fun MenuLookScreen(vm: MainViewModel) {
         // pictures
         val slots = m.brand?.let { MenuLook.slots(it) } ?: emptyList()
         if (slots.isNotEmpty()) {
-            Text("3  Pictures (optional)", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 18.dp))
+            Text("2  Pictures (optional)", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 18.dp))
             Text(
                 "Make the picture of every place from ONE picture: the app scales it to the exact size of each place. " +
                     "Or let the AI draw an icon. None is included (the Android Auto logo is Google's). With none, only the label changes.",
@@ -242,16 +238,9 @@ fun MenuLookScreen(vm: MainViewModel) {
             if (m.brand?.startsWith("bmw") == true) {
                 Text(
                     when {
-                        m.factoryBusy -> "Reading the head unit's own tile picture and clearing the Baidu icon from it…"
-                        m.factoryTiles.isNotEmpty() ->
-                            "The three tall BMW tile pictures are 72×378. Your icon is put over the head unit's own tile picture, " +
-                                "with the Baidu CarLife icon cleared out of it first (read once from it), so the usual background " +
-                                "stays but Baidu's icon does not. How that comes out cannot be fully seen here. If it looks off, " +
-                                "RESTORE brings the originals back."
-                        else ->
-                            "The three tall BMW tile pictures are 72×378: without the head unit's own picture behind it (press " +
-                                "LOOK AT THE HEAD UNIT with the car connected), a square icon sits in the middle with empty space " +
-                                "around it. How the iDrive shows that cannot be seen here. If it looks off, RESTORE brings the originals back."
+                        m.factoryBusy -> "Reading the head unit's own tile picture and clearing the Baidu icon from it… (ⓘ for more)"
+                        m.factoryTiles.isNotEmpty() -> "Over the head unit's own tile picture, Baidu's icon cleared out (ⓘ for more)"
+                        else -> "No head-unit picture yet: icon centred on its own for now (ⓘ for more)"
                     },
                     fontSize = 11.sp, color = muted, modifier = Modifier.padding(top = 6.dp),
                 )
@@ -261,7 +250,7 @@ fun MenuLookScreen(vm: MainViewModel) {
         }
 
         // steps
-        Text("4  Check, then apply", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 18.dp))
+        Text("3  Apply or undo", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 18.dp))
         Text(
             "CHECK makes the new texts in the head unit's memory and checks the pictures, and changes nothing. It takes a while on the head unit.",
             fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp),
@@ -272,9 +261,8 @@ fun MenuLookScreen(vm: MainViewModel) {
         OutlinedButton(onClick = { m.askToApply() }, enabled = canAct && m.canApply, modifier = Modifier.padding(top = 6.dp).fillMaxWidth()) {
             Text(if (m.busy == MenuLookScripts.Action.APPLY) "APPLYING…" else "APPLY…")
         }
-
-        Text("5  Undo", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 18.dp))
-        Text("Puts every replaced file back from the copy kept on the head unit.", fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+        HorizontalDivider(Modifier.padding(vertical = 14.dp), color = MaterialTheme.colorScheme.outlineVariant)
+        Text("Puts every replaced file back from the copy kept on the head unit.", fontSize = 12.sp)
         OutlinedButton(onClick = { m.askToRestore() }, enabled = canAct, modifier = Modifier.padding(top = 8.dp).fillMaxWidth()) {
             Text(if (m.busy == MenuLookScripts.Action.RESTORE) "RESTORING…" else "RESTORE THE ORIGINALS…", color = if (canAct) Red else Color.Unspecified)
         }
@@ -457,6 +445,7 @@ private fun MenuLookInfo(onClose: () -> Unit) {
                     "The label is changed on the head unit itself by the kit's aa-look program, which the app copies into the head unit's memory and runs there. Nothing is installed and no PC tools are needed.",
                     "Unlike the tile, this changes head-unit files: the menu text file (text.db) and the pictures you choose. Before a file is replaced the app keeps the factory copy in /opt/aa/menu-look-backup (the same folder and layout as the author's scripts), and RESTORE puts every one back byte for byte.",
                     "Pictures need exactly the size of the original. MAKE FROM A PICTURE does that for you: pick one picture (or let the AI draw an icon from your words) and the app scales it to every place, then shows each result. None is included: the Android Auto logo is a Google trademark and the tile backgrounds are BMW or MINI artwork.",
+                    "For BMW, the three tall tile pictures are 72×378. Your icon is put over the head unit's own tile picture, with the Baidu CarLife icon cleared out of it first (read once from it, with the car connected), so the usual background stays but Baidu's icon does not. Without the head unit's own picture (no car connected yet, or LOOK AT THE HEAD UNIT not pressed), the icon is centred on its own instead, with empty space around it. Either way, how it actually looks in the iDrive menu cannot be fully seen here; if it looks off, RESTORE brings the originals back.",
                     "The app does not run the zip's own scripts: it uses aa-look and does the same steps itself, with checks of its own.",
                 )
                 for (l in lines) Text("• $l", fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))

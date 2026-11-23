@@ -15,6 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -75,7 +76,7 @@ fun TileScreen(vm: MainViewModel) {
 
         HeadUnitGate(vm, paused = tile.working)
 
-        // the file
+        // the file, and the head unit
         Box2(Modifier.padding(top = 14.dp)) {
             Text(s.kit.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
             Text(
@@ -83,10 +84,7 @@ fun TileScreen(vm: MainViewModel) {
                 fontSize = 12.sp, color = if (s.kit.known) Green else Amber, modifier = Modifier.padding(top = 2.dp),
             )
             Text(s.origin, fontSize = 11.sp, color = muted, modifier = Modifier.padding(top = 2.dp))
-        }
-
-        // the head unit
-        Box2(Modifier.padding(top = 10.dp)) {
+            HorizontalDivider(Modifier.padding(vertical = 10.dp), color = MaterialTheme.colorScheme.outlineVariant)
             Text("On the head unit", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             val r = tile.report
             if (r == null) {

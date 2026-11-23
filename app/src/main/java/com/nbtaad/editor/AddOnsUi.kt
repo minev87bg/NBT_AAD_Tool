@@ -95,7 +95,9 @@ private fun AddOnList(vm: MainViewModel) {
 
 /**
  * One add-on in the list: tinted with the accent, the first row strongest and each one below it fainter (never less
- * than a faint tint, so the last one is still a card), its text on the left, vertically centred, and the picture slot on the right.
+ * than a faint tint, so the last one is still a card), its text on the left, vertically centred, and the picture slot
+ * on the right. A tap on the row itself goes straight to the add-on's own page when the newest copy is already on the
+ * phone ([MainViewModel.openAddOnRow]); the small ⓘ next to the title (shown only then) still opens its GitHub page.
  */
 @Composable
 private fun AddOnRow(vm: MainViewModel, entry: CatalogEntry, index: Int) {
@@ -106,12 +108,17 @@ private fun AddOnRow(vm: MainViewModel, entry: CatalogEntry, index: Int) {
         Modifier.padding(top = 10.dp).fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.primary.copy(alpha = tint))
-            .clickable { vm.addOnOpen = entry.id }
+            .clickable { vm.openAddOnRow(entry) }
             .padding(14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f).padding(end = 12.dp)) {
-            Text(entry.title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(entry.title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f, fill = false))
+                if (plan.doing == AddOnCatalog.Do.OPEN_SAVED) {
+                    InfoDot(size = 18.dp) { vm.addOnOpen = entry.id }
+                }
+            }
             Text(entry.summary, fontSize = 12.sp, color = muted, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 3.dp))
             Text(
                 plan.status, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,

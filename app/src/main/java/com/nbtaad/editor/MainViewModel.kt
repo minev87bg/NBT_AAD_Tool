@@ -20,7 +20,9 @@ import com.nbtaad.editor.env.CustomOption
 import com.nbtaad.editor.env.EnvCheck
 import com.nbtaad.editor.env.EnvDoc
 import com.nbtaad.editor.env.Opt
+import com.nbtaad.editor.addon.AddOnCatalog
 import com.nbtaad.editor.addon.AddOns
+import com.nbtaad.editor.addon.CatalogEntry
 import com.nbtaad.editor.install.HuRestart
 import com.nbtaad.editor.install.InstallController
 import com.nbtaad.editor.install.MenuLookController
@@ -194,6 +196,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         addOnOpen = null
         addOns.visit()
         screen = Screen.ADDONS
+    }
+
+    /**
+     * A tap on an add-on's row in the list: when there is nothing new to fetch or decide (the newest copy is already
+     * on the phone), this goes straight to the add-on's own page instead of by way of its GitHub page, since there is
+     * nothing on that page a person needs to see again. The GitHub page is still one tap away (the row's own ⓘ) for the
+     * times it is wanted: a new release to read about first, or the first time this add-on is got at all.
+     */
+    fun openAddOnRow(entry: CatalogEntry) {
+        if (addOns.plan(entry).doing == AddOnCatalog.Do.OPEN_SAVED) addOns.act(entry) else addOnOpen = entry.id
     }
 
     fun closeTile() {
