@@ -895,6 +895,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun checkCodings() {
         if (codingChecking) return
         codingChecking = true
+        forceWriteArmed = false
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 NetworkBinder.bindToLocalNetwork(ctx)
@@ -934,6 +935,28 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Read-only SecurityAccess level probe (PROBE SECURITYACCESS) - never sends a key, nothing is unlocked or written. */
     var probingSecurityAccess by mutableStateOf(false)
     var securityAccessProbeLog by mutableStateOf<List<com.nbtaad.editor.net.WriteStep>?>(null)
+
+    /** Armed by 5 taps within 1.7s on WRITE CODING while it has nothing pending (see [onWriteButtonMultiTap]):
+     *  turns it into "WRITE AGAIN", re-sending every bit CHECK CODINGS already confirms, purely to test the
+     *  write/clear-faults path without first having to change a real coding just to light the button up.
+     *  Cleared once a write is actually kicked off, so each test needs its own fresh burst of taps. */
+    var forceWriteArmed by mutableStateOf(false)
+    private val writeTapTimes = mutableListOf<Long>()
+
+    /** Call on every tap of a disabled WRITE CODING button (an invisible overlay in PrepareUi catches these,
+     *  since a disabled Button normally swallows touches): counts a 1.7s burst and arms [forceWriteArmed]
+     *  on the 5th tap. */
+    fun onWriteButtonMultiTap() {
+        val now = System.currentTimeMillis()
+        writeTapTimes.add(now)
+        writeTapTimes.removeAll { now - it > 1700 }
+        if (writeTapTimes.size >= 5) {
+            writeTapTimes.clear()
+            forceWriteArmed = true
+            feedback = "Test mode armed: WRITE AGAIN will re-send every coding CHECK CODINGS already confirms, even with nothing pending."
+            feedbackError = false
+        }
+    }
 
     /** Imports a key file the person picked (ncd_key.json or l3_key.json, from the PC-side recovery tool). */
     fun importCodingKey(uri: android.net.Uri, ncd: Boolean) {
@@ -1036,6 +1059,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         codingBusy = true
         codingWriteLog = null
         dtcCountBeforeWrite = null
+        forceWriteArmed = false
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 codingBackup = com.nbtaad.editor.net.CodingWrite.readBackup(ip)
@@ -1053,6 +1077,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** REMOVE BACKUP (the ❌ next to the backup line): discards it so READ BACKUP can fetch a fresh one - e.g. once a write has moved on past it. */
     fun removeCodingBackup() {
         codingBackup = null
+        forceWriteArmed = false
     }
 
     /** WRITE CODING tapped: the keys have to be loaded first, since writing can't be signed without them. */
@@ -1065,11 +1090,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (!hasNcdKey || !hasL3Key) screen = Screen.SIGNING_TOOLS else revertCoding()
     }
 
-    /** The AA coding bits CHECK CODINGS found not set, paired with the value they should be — what WRITE CODING would send. */
-    val codingFixes: List<Pair<com.nbtaad.editor.net.CodingBit, Int>>
+    /** The AA coding bits CHECK CODINGS found not set, paired with the value they should be — what a normal WRITE CODING tap sends. */
+    private val pendingCodingFixes: List<Pair<com.nbtaad.editor.net.CodingBit, Int>>
         get() = (codingResults ?: emptyList())
             .filter { it.status == com.nbtaad.editor.net.CodingStatus.NOT_SET }
             .mapNotNull { r -> r.bit.expectedOn?.let { r.bit to it } }
+
+    /** Every bit CHECK CODINGS has a known expected value for, set or not — what WRITE AGAIN sends while [forceWriteArmed]. */
+    private val allCodingFixes: List<Pair<com.nbtaad.editor.net.CodingBit, Int>>
+        get() = (codingResults ?: emptyList()).mapNotNull { r -> r.bit.expectedOn?.let { r.bit to it } }
+
+    /** What WRITE CODING actually sends: the pending fixes normally, or every known bit once [forceWriteArmed]. */
+    val codingFixes: List<Pair<com.nbtaad.editor.net.CodingBit, Int>>
+        get() = if (forceWriteArmed) allCodingFixes else pendingCodingFixes
 
     /**
      * Whether WRITE CODING's button is enabled: a backup, a known VIN, and something to change. The keys are
@@ -1112,6 +1145,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val l3Key = codingKeyStore.readL3Key() ?: return
         val fixes = codingFixes
         if (fixes.isEmpty() || codingBusy) return
+        // Captured above, while still armed if this was a forced WRITE AGAIN - disarm now so the next
+        // test needs its own fresh burst of taps rather than silently staying in force-write mode.
+        forceWriteArmed = false
         codingBusy = true
         viewModelScope.launch(Dispatchers.IO) {
             try {

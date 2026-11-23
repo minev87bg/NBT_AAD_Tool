@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -357,11 +358,18 @@ private fun WriteCodingSection(vm: MainViewModel) {
                 Text("• ${bit.token} → $value", fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
             }
         }
-        Button(
-            onClick = { vm.onWriteCodingTapped() },
-            enabled = vm.canWriteCoding,
-            modifier = Modifier.padding(top = 10.dp).fillMaxWidth(),
-        ) { Text("WRITE CODING…") }
+        Box(Modifier.padding(top = 10.dp).fillMaxWidth()) {
+            Button(
+                onClick = { vm.onWriteCodingTapped() },
+                enabled = vm.canWriteCoding,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(if (vm.forceWriteArmed) "WRITE AGAIN" else "WRITE CODING…") }
+            // A disabled Button swallows touches, so nothing would ever reach a 5-tap gesture on it -
+            // this invisible overlay sits on top only while it's disabled, just to catch those taps.
+            if (!vm.canWriteCoding && !vm.codingBusy) {
+                Box(Modifier.matchParentSize().clickable(onClick = { vm.onWriteButtonMultiTap() }))
+            }
+        }
         OutlinedButton(
             onClick = { vm.onRevertTapped() },
             enabled = vm.codingBackup?.mem != null && !vm.codingBusy,
