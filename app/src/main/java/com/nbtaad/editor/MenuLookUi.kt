@@ -222,11 +222,12 @@ fun MenuLookScreen(vm: MainViewModel) {
             if (m.brand?.startsWith("bmw") == true) {
                 Text(
                     when {
-                        m.factoryBusy -> "Reading the head unit's own tile picture, so your icon can be put over it…"
+                        m.factoryBusy -> "Reading the head unit's own tile picture and clearing the Baidu icon from it…"
                         m.factoryTiles.isNotEmpty() ->
-                            "The three tall BMW tile pictures are 72×378. Your icon is put over the head unit's own tile picture " +
-                                "(read once from it), so the usual look stays. How that comes out cannot be fully seen here. " +
-                                "If it looks off, RESTORE brings the originals back."
+                            "The three tall BMW tile pictures are 72×378. Your icon is put over the head unit's own tile picture, " +
+                                "with the Baidu CarLife icon cleared out of it first (read once from it), so the usual background " +
+                                "stays but Baidu's icon does not. How that comes out cannot be fully seen here. If it looks off, " +
+                                "RESTORE brings the originals back."
                         else ->
                             "The three tall BMW tile pictures are 72×378: without the head unit's own picture behind it (press " +
                                 "LOOK AT THE HEAD UNIT with the car connected), a square icon sits in the middle with empty space " +

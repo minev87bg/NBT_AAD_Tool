@@ -3,6 +3,7 @@ package com.nbtaad.editor.install
 import com.nbtaad.editor.addon.MenuLook
 import com.nbtaad.editor.addon.MenuLookKit
 import com.nbtaad.editor.addon.MenuLookKits
+import com.nbtaad.editor.addon.PictureMaker
 import com.nbtaad.editor.addon.Pixels
 import com.nbtaad.editor.net.SshSession
 
@@ -61,8 +62,10 @@ object MenuLookHeadUnit {
 
     /**
      * The real "Main-menu tile" pictures for [brand] (not the small plain icon places), read once from the head
-     * unit, so a chosen icon can be drawn over the head unit's own background instead of empty space. A place that
-     * cannot be read is simply left out: the icon is then made the old way, on its own, for that place only.
+     * unit, with the Baidu CarLife icon they are drawn with erased ([PictureMaker.withoutSubject]) so a chosen icon
+     * can be drawn over a clean background instead of over Baidu's or over empty space. A place that cannot be
+     * read, or whose icon cannot be told apart from its background, is simply left out: the icon is then made the
+     * old way, on its own, for that place only.
      */
     fun fetchFactoryTiles(host: String, brand: String): Map<String, Pixels> {
         val out = LinkedHashMap<String, Pixels>()
@@ -72,7 +75,7 @@ object MenuLookHeadUnit {
                 val bytes = fetchOriginal(ssh, slot.rel) ?: continue
                 try {
                     val px = PictureFiles.decode(bytes)
-                    if (px.width == slot.width && px.height == slot.height) out[slot.rel] = px
+                    if (px.width == slot.width && px.height == slot.height) out[slot.rel] = PictureMaker.withoutSubject(px)
                 } catch (_: Exception) {
                     // not a usable PNG: left out, the icon is made the old way for this one place
                 }

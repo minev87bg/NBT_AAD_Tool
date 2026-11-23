@@ -248,6 +248,90 @@ object PictureMaker {
         }
         return Pixels(w, h, out)
     }
+
+    // ---------------- removing a drawn icon from a picture of its own place ----------------
+
+    /**
+     * The compact shape in [src] not reached by flood-filling in from every edge, moving only between neighbours
+     * whose colours are close (within [tolerance] of each other, not of one fixed colour, so a background that
+     * shades smoothly from edge to edge is still all one reach even though its two far corners may differ by a lot).
+     * An icon drawn on a place like that stands out: its edge is a sharp jump in colour, so the fill does not cross
+     * into it, and it comes back as an unreached "island". Null when (almost) everything is reached (no clear icon)
+     * or (almost) nothing is (the one thing found is bigger than the background it sits on, so likely not an icon).
+     */
+    fun island(src: Pixels, tolerance: Int = 24): BooleanArray? {
+        val w = src.width
+        val h = src.height
+        val reached = BooleanArray(w * h)
+        val queue = IntArray(w * h)
+        var head = 0
+        var tail = 0
+        fun push(i: Int) { if (!reached[i]) { reached[i] = true; queue[tail++] = i } }
+        for (x in 0 until w) { push(x); push((h - 1) * w + x) }
+        for (y in 0 until h) { push(y * w); push(y * w + w - 1) }
+        while (head < tail) {
+            val i = queue[head++]
+            val x = i % w
+            val y = i / w
+            val c = src.argb[i]
+            fun tryNext(j: Int) { if (!reached[j] && colorDistance(src.argb[j], c) <= tolerance) push(j) }
+            if (x > 0) tryNext(i - 1)
+            if (x < w - 1) tryNext(i + 1)
+            if (y > 0) tryNext(i - w)
+            if (y < h - 1) tryNext(i + w)
+        }
+        val island = w * h - tail
+        if (island == 0 || island > w * h * 7 / 10) return null
+        return BooleanArray(w * h) { !reached[it] }
+    }
+
+    /** A blend of two colours, [t] of the way from [a] to [b] (0 is [a], 1 is [b]), alpha included. */
+    private fun blend(a: Int, b: Int, t: Float): Int {
+        fun ch(shift: Int) = Math.round(((a ushr shift) and 0xFF) + (((b ushr shift) and 0xFF) - ((a ushr shift) and 0xFF)) * t).coerceIn(0, 255)
+        return (ch(24) shl 24) or (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
+    }
+
+    /**
+     * [src] with every pixel marked in [mask] guessed at instead: each run of marked pixels in a column is filled by
+     * blending between the nearest unmarked pixel above it and the nearest below (these places are tall and narrow,
+     * so a shading from top to bottom is the likely case); a run that reaches the top or bottom edge just repeats
+     * the one unmarked pixel it does have. Plain Kotlin, so it can be checked without a head unit.
+     */
+    fun fillMasked(src: Pixels, mask: BooleanArray): Pixels {
+        val w = src.width
+        val h = src.height
+        val out = src.argb.copyOf()
+        for (x in 0 until w) {
+            var y = 0
+            while (y < h) {
+                if (!mask[y * w + x]) { y++; continue }
+                val start = y
+                while (y < h && mask[y * w + x]) y++
+                val end = y
+                val top = if (start > 0) out[(start - 1) * w + x] else null
+                val bottom = if (end < h) out[end * w + x] else null
+                for (yy in start until end) {
+                    out[yy * w + x] = when {
+                        top != null && bottom != null -> blend(top, bottom, (yy - start + 1f) / (end - start + 1f))
+                        top != null -> top
+                        bottom != null -> bottom
+                        else -> out[yy * w + x] // the whole column is marked: nothing to guess it from, left as it was
+                    }
+                }
+            }
+        }
+        return Pixels(w, h, out)
+    }
+
+    /**
+     * [src] (a real picture of a head unit's place, icon included) with its one icon erased, so a different icon can
+     * be drawn over a clean background instead of over the old one. Returns [src] unchanged when no clear, compact
+     * icon is found in it: a guessed fill then risks doing more harm than good.
+     */
+    fun withoutSubject(src: Pixels, tolerance: Int = 24): Pixels {
+        val mask = island(src, tolerance) ?: return src
+        return fillMasked(src, mask)
+    }
 }
 
 /** Writes a PNG (8 bits per channel): RGBA (colour type 6) or grey with alpha (4), the two the menu pictures use. */
