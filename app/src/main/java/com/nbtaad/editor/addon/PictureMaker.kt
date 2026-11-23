@@ -66,6 +66,33 @@ object PictureMaker {
     fun make(src: Pixels, slot: MenuLook.Slot, fit: Fit): ByteArray =
         PngWriter.encode(render(src, slot.width, slot.height, fit), slot.colorType)
 
+    /**
+     * The PNG for [slot] with [src] drawn over [factory] (the head unit's own original picture for that place): the
+     * background keeps its usual look (a glass or gradient tile, say) and only the icon on top of it changes, placed
+     * the same way [make] would place it on its own. [factory] is expected to already be [slot]'s exact size, since
+     * it is read from the head unit itself; it is resized first if, for some reason, it is not.
+     */
+    fun makeOverBackground(factory: Pixels, src: Pixels, slot: MenuLook.Slot, fit: Fit): ByteArray {
+        val bg = if (factory.width == slot.width && factory.height == slot.height) factory else render(factory, slot.width, slot.height, Fit.FILL)
+        val icon = render(src, bg.width, bg.height, fit)
+        val out = bg.argb.copyOf()
+        for (i in out.indices) {
+            val s = icon.argb[i]
+            val sa = (s ushr 24) and 0xFF
+            if (sa == 0) continue
+            if (sa == 255) { out[i] = s; continue }
+            val d = out[i]
+            val da = (d ushr 24) and 0xFF
+            val sf = sa / 255f
+            val r = Math.round(((s shr 16 and 0xFF) * sf) + ((d shr 16 and 0xFF) * (1 - sf))).coerceIn(0, 255)
+            val g = Math.round(((s shr 8 and 0xFF) * sf) + ((d shr 8 and 0xFF) * (1 - sf))).coerceIn(0, 255)
+            val b = Math.round(((s and 0xFF) * sf) + ((d and 0xFF) * (1 - sf))).coerceIn(0, 255)
+            val a = Math.round(sa + da * (1 - sf)).coerceIn(0, 255)
+            out[i] = (a shl 24) or (r shl 16) or (g shl 8) or b
+        }
+        return PngWriter.encode(Pixels(bg.width, bg.height, out), slot.colorType)
+    }
+
     // ---------------- scaling ----------------
 
     /** For each of [m] new pixels along a line of [n]: which old pixels count and how much. A new pixel is an average (shrinking) or a blend of two (growing). */

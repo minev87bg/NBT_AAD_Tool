@@ -221,10 +221,20 @@ fun MenuLookScreen(vm: MainViewModel) {
             }
             if (m.brand?.startsWith("bmw") == true) {
                 Text(
-                    "The three tall BMW tile pictures are 72×378: a square picture sits in the middle with empty space around it. " +
-                        "How the iDrive shows that cannot be seen here. If it looks off, RESTORE brings the originals back.",
+                    when {
+                        m.factoryBusy -> "Reading the head unit's own tile picture, so your icon can be put over it…"
+                        m.factoryTiles.isNotEmpty() ->
+                            "The three tall BMW tile pictures are 72×378. Your icon is put over the head unit's own tile picture " +
+                                "(read once from it), so the usual look stays. How that comes out cannot be fully seen here. " +
+                                "If it looks off, RESTORE brings the originals back."
+                        else ->
+                            "The three tall BMW tile pictures are 72×378: without the head unit's own picture behind it (press " +
+                                "LOOK AT THE HEAD UNIT with the car connected), a square icon sits in the middle with empty space " +
+                                "around it. How the iDrive shows that cannot be seen here. If it looks off, RESTORE brings the originals back."
+                    },
                     fontSize = 11.sp, color = muted, modifier = Modifier.padding(top = 6.dp),
                 )
+                if (m.factoryMessage.isNotEmpty()) Text(m.factoryMessage, fontSize = 11.sp, color = Amber, modifier = Modifier.padding(top = 2.dp))
             }
             if (m.pictureMessage.isNotEmpty()) Text(m.pictureMessage, fontSize = 12.sp, color = Red, modifier = Modifier.padding(top = 6.dp))
         }

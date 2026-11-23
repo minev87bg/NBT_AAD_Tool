@@ -80,6 +80,12 @@ class MenuLookController(
     var askRestore by mutableStateOf(false)
     var showLog by mutableStateOf(false)
 
+    // the head unit's own tile backgrounds, read once per brand so a chosen icon is drawn over them, not over empty space
+    var factoryTiles by mutableStateOf<Map<String, Pixels>>(emptyMap()); private set
+    private var factoryBrand: String? = null
+    var factoryBusy by mutableStateOf(false); private set
+    var factoryMessage by mutableStateOf(""); private set
+
     val working: Boolean get() = busy != null
 
     /** The brands whose text.db the head unit has, in the order the page offers them. */
@@ -134,7 +140,34 @@ class MenuLookController(
         if (working) return
         brand = b
         checkedOk = false
+        fetchFactoryTiles(b)
         if (source != null) remake(overwrite = false)
+    }
+
+    /**
+     * Reads the head unit's own "Main-menu tile" pictures for [b] once, so the icon the person chooses or the AI
+     * draws is put over the real background instead of empty space (see [PictureMaker.makeOverBackground]). Quietly
+     * skipped if already read for this brand; a picture already made is remade once this comes back, to pick it up.
+     */
+    private fun fetchFactoryTiles(b: String) {
+        if (factoryBusy || factoryBrand == b) return
+        factoryBusy = true
+        factoryMessage = ""
+        scope.launch(Dispatchers.IO) {
+            try {
+                NetworkBinder.bindToLocalNetwork(ctx)
+                val found = runOnHeadUnit(host, rescan, whyNot = problem) { h -> MenuLookHeadUnit.fetchFactoryTiles(h, b) }
+                factoryTiles = found
+                factoryBrand = b
+                if (found.isEmpty()) factoryMessage = "The head unit's own tile picture could not be read, so the icon is made on its own."
+                if (source != null) remake(overwrite = true)
+            } catch (e: Exception) {
+                AppLog.w("MenuLook", "Could not read the head unit's own tile picture: ${e.message}")
+                factoryMessage = "The head unit's own tile picture could not be read (${friendlyError(e)}), so the icon is made on its own."
+            } finally {
+                factoryBusy = false
+            }
+        }
     }
 
     fun clearPicture(rel: String) {
@@ -255,7 +288,8 @@ class MenuLookController(
                 for (slot in MenuLook.slots(b)) {
                     val old = next[slot.rel]
                     if (old != null && !old.made && !overwrite) continue
-                    val bytes = PictureMaker.make(base, slot, fit)
+                    val factory = factoryTiles[slot.rel]
+                    val bytes = if (factory != null) PictureMaker.makeOverBackground(factory, base, slot, fit) else PictureMaker.make(base, slot, fit)
                     next[slot.rel] = Chosen(src.name, bytes, MenuLook.slotProblem(slot, bytes), MenuLook.slotNote(slot, bytes), made = true)
                     ensureActive()
                 }
@@ -294,7 +328,9 @@ class MenuLookController(
                     MenuLookHeadUnit.run(it, action, kit, useBrand, useLabel, pics, rep)
                 }
                 report = r
+                val hadBrand = brand != null
                 if (brand == null) brand = MenuLook.BRANDS.firstOrNull { r.state["brand-$it"] == "yes" }
+                if (!hadBrand) brand?.let { fetchFactoryTiles(it) }
                 result = interpret(action, r)
                 if (action == MenuLookScripts.Action.CHECK) checkedOk = r.success
             } catch (e: Exception) {

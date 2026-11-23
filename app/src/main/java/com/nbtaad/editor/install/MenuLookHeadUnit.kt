@@ -1,7 +1,10 @@
 package com.nbtaad.editor.install
 
+import com.nbtaad.editor.addon.MenuLook
 import com.nbtaad.editor.addon.MenuLookKit
 import com.nbtaad.editor.addon.MenuLookKits
+import com.nbtaad.editor.addon.Pixels
+import com.nbtaad.editor.net.SshSession
 
 /** Looks at, checks, applies and restores the menu look on the head unit (the steps are in [MenuLookScripts]). */
 object MenuLookHeadUnit {
@@ -38,5 +41,43 @@ object MenuLookHeadUnit {
         val wait = if (sending) 360_000L else 120_000L
         val needsWrite = action == MenuLookScripts.Action.APPLY || action == MenuLookScripts.Action.RESTORE
         return HuJob.run(host, "menu look ${action.word}", files, job, needsWrite, wait, rep)
+    }
+
+    /**
+     * The picture BMW/MINI itself ships for [rel]: the factory copy kept at the first APPLY (still there as long as
+     * the look stays on), or, when the look was never applied, the live file (then still the untouched original).
+     * Read directly over hu-omap's network path, the way [HeadUnit]'s own diagnostics already read its folders: one
+     * small file, no RAM staging needed. Null when neither is there or does not look like a PNG.
+     */
+    private fun fetchOriginal(ssh: SshSession, rel: String): ByteArray? {
+        val backup = "/net/hu-omap/opt/aa/menu-look-backup/ro/$rel"
+        val live = "/net/hu-omap/opt/hmi/ID5/data/ro/$rel"
+        for (path in listOf(backup, live)) {
+            val r = ssh.exec("if [ -f '$path' ]; then cat '$path'; fi", timeoutMs = 20_000, maxBytes = 2L * 1024 * 1024)
+            if (r.out.size > 8 && r.out[1] == 'P'.code.toByte() && r.out[2] == 'N'.code.toByte() && r.out[3] == 'G'.code.toByte()) return r.out
+        }
+        return null
+    }
+
+    /**
+     * The real "Main-menu tile" pictures for [brand] (not the small plain icon places), read once from the head
+     * unit, so a chosen icon can be drawn over the head unit's own background instead of empty space. A place that
+     * cannot be read is simply left out: the icon is then made the old way, on its own, for that place only.
+     */
+    fun fetchFactoryTiles(host: String, brand: String): Map<String, Pixels> {
+        val out = LinkedHashMap<String, Pixels>()
+        SshSession(host).use { ssh ->
+            for (slot in MenuLook.slots(brand)) {
+                if (!slot.what.startsWith("Main-menu tile")) continue
+                val bytes = fetchOriginal(ssh, slot.rel) ?: continue
+                try {
+                    val px = PictureFiles.decode(bytes)
+                    if (px.width == slot.width && px.height == slot.height) out[slot.rel] = px
+                } catch (_: Exception) {
+                    // not a usable PNG: left out, the icon is made the old way for this one place
+                }
+            }
+        }
+        return out
     }
 }
