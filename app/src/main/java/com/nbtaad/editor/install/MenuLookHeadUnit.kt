@@ -1,5 +1,6 @@
 package com.nbtaad.editor.install
 
+import com.nbtaad.editor.addon.CleanedTile
 import com.nbtaad.editor.addon.MenuLook
 import com.nbtaad.editor.addon.MenuLookKit
 import com.nbtaad.editor.addon.MenuLookKits
@@ -62,7 +63,7 @@ object MenuLookHeadUnit {
 
     /** The real picture for one place, as read from the head unit: [raw] untouched (for saving and looking at
      *  closely), [cleaned] with its icon erased (for drawing a chosen one over instead). */
-    class FactoryTile(val raw: ByteArray, val cleaned: Pixels)
+    class FactoryTile(val raw: ByteArray, val cleaned: CleanedTile)
 
     /**
      * The real "Main-menu tile" pictures for [brand] (not the small plain icon places), read once from the head

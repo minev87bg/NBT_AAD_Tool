@@ -208,7 +208,7 @@ fun MenuLookScreen(vm: MainViewModel) {
                         }
                         if (factory != null) {
                             Column {
-                                FactoryPreview(remember(factory) { bitmapOf(factory.cleaned) })
+                                FactoryPreview(remember(factory) { bitmapOf(factory.cleaned.background) })
                                 Text("cleared", fontSize = 9.sp, color = muted)
                             }
                             Spacer(Modifier.width(10.dp))
