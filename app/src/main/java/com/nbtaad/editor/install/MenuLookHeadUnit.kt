@@ -45,21 +45,19 @@ object MenuLookHeadUnit {
         return HuJob.run(host, "menu look ${action.word}", files, job, needsWrite, wait, rep)
     }
 
+    /** Reads [path] over hu-omap's network path if it is there, the way [HeadUnit]'s own diagnostics already read
+     *  its folders: one small file, no RAM staging needed. Null when it is not there or does not look like a PNG. */
+    private fun catPng(ssh: SshSession, path: String): ByteArray? {
+        val r = ssh.exec("if [ -f '$path' ]; then cat '$path'; fi", timeoutMs = 20_000, maxBytes = 2L * 1024 * 1024)
+        return r.out.takeIf { it.size > 8 && it[1] == 'P'.code.toByte() && it[2] == 'N'.code.toByte() && it[3] == 'G'.code.toByte() }
+    }
+
     /**
      * The picture BMW/MINI itself ships for [rel]: the factory copy kept at the first APPLY (still there as long as
      * the look stays on), or, when the look was never applied, the live file (then still the untouched original).
-     * Read directly over hu-omap's network path, the way [HeadUnit]'s own diagnostics already read its folders: one
-     * small file, no RAM staging needed. Null when neither is there or does not look like a PNG.
      */
-    private fun fetchOriginal(ssh: SshSession, rel: String): ByteArray? {
-        val backup = "/net/hu-omap/opt/aa/menu-look-backup/ro/$rel"
-        val live = "/net/hu-omap/opt/hmi/ID5/data/ro/$rel"
-        for (path in listOf(backup, live)) {
-            val r = ssh.exec("if [ -f '$path' ]; then cat '$path'; fi", timeoutMs = 20_000, maxBytes = 2L * 1024 * 1024)
-            if (r.out.size > 8 && r.out[1] == 'P'.code.toByte() && r.out[2] == 'N'.code.toByte() && r.out[3] == 'G'.code.toByte()) return r.out
-        }
-        return null
-    }
+    private fun fetchOriginal(ssh: SshSession, rel: String): ByteArray? =
+        catPng(ssh, "/net/hu-omap/opt/aa/menu-look-backup/ro/$rel") ?: catPng(ssh, "/net/hu-omap/opt/hmi/ID5/data/ro/$rel")
 
     /** The real picture for one place, as read from the head unit: [raw] untouched (for saving and looking at
      *  closely), [cleaned] with its icon erased (for drawing a chosen one over instead). */
@@ -93,6 +91,22 @@ object MenuLookHeadUnit {
         for (group in read.entries.groupBy { it.value.second.width to it.value.second.height }.values) {
             val cleaned = PictureMaker.withoutSubjects(group.map { it.value.second })
             group.forEachIndexed { i, e -> out[e.key] = FactoryTile(e.value.first, cleaned[i]) }
+        }
+        return out
+    }
+
+    /**
+     * The picture the head unit is showing right now for every place of [brand] (the live file, never the factory
+     * backup [fetchOriginal] prefers): once the look is already applied, this is the person's own icon as it is on
+     * the car's display, so pressing LOOK can offer it back instead of asking for it to be chosen or made again just
+     * to reapply it unchanged. A place that cannot be read, or is not there, is simply left out.
+     */
+    fun fetchCurrentPictures(host: String, brand: String): Map<String, ByteArray> {
+        val out = LinkedHashMap<String, ByteArray>()
+        SshSession(host).use { ssh ->
+            for (slot in MenuLook.slots(brand)) {
+                catPng(ssh, "/net/hu-omap/opt/hmi/ID5/data/ro/${slot.rel}")?.let { out[slot.rel] = it }
+            }
         }
         return out
     }

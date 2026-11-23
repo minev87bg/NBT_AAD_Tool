@@ -87,6 +87,10 @@ class MenuLookController(
     var factoryMessage by mutableStateOf(""); private set
     var factorySaveNote by mutableStateOf(""); private set
 
+    // the pictures already on the head unit, read once per brand once the look is found installed for it, so
+    // reapplying what is already there needs no choosing or making again (see fetchCurrentPictures)
+    private var currentFetchedFor: String? = null
+
     val working: Boolean get() = busy != null
 
     /** The brands whose text.db the head unit has, in the order the page offers them. */
@@ -142,6 +146,7 @@ class MenuLookController(
         brand = b
         checkedOk = false
         fetchFactoryTiles(b)
+        fetchCurrentPictures(b)
         if (source != null) remake(overwrite = false)
     }
 
@@ -183,6 +188,32 @@ class MenuLookController(
             } catch (e: Exception) {
                 factorySaveNote = "Could not save: ${e.message ?: e.javaClass.simpleName}"
                 AppLog.e("MenuLook", "Saving the head unit's own picture failed", e)
+            }
+        }
+    }
+
+    /**
+     * Once the look is found installed for [b], offers back the picture already on the head unit for any of its
+     * places the person has not chosen one for this session, so reapplying what is already there (the usual reason
+     * to look again) needs no choosing or making again. Quietly skipped when [b] is not the installed brand
+     * (nothing of the person's to recover for it) or already read.
+     */
+    private fun fetchCurrentPictures(b: String) {
+        if (!installed || installedBrand != b || currentFetchedFor == b) return
+        currentFetchedFor = b
+        scope.launch(Dispatchers.IO) {
+            try {
+                NetworkBinder.bindToLocalNetwork(ctx)
+                val found = runOnHeadUnit(host, rescan, whyNot = problem) { h -> MenuLookHeadUnit.fetchCurrentPictures(h, b) }
+                val next = pictures.toMutableMap()
+                for (slot in MenuLook.slots(b)) {
+                    if (slot.rel in next) continue
+                    val bytes = found[slot.rel] ?: continue
+                    next[slot.rel] = Chosen("already on the head unit", bytes, MenuLook.slotProblem(slot, bytes), MenuLook.slotNote(slot, bytes))
+                }
+                pictures = next
+            } catch (e: Exception) {
+                AppLog.w("MenuLook", "Could not read the head unit's current pictures: ${e.message}")
             }
         }
     }
@@ -348,6 +379,7 @@ class MenuLookController(
                 val hadBrand = brand != null
                 if (brand == null) brand = MenuLook.BRANDS.firstOrNull { r.state["brand-$it"] == "yes" }
                 if (!hadBrand) brand?.let { fetchFactoryTiles(it) }
+                if (action == MenuLookScripts.Action.LOOK) brand?.let { fetchCurrentPictures(it) }
                 result = interpret(action, r)
                 if (action == MenuLookScripts.Action.CHECK) checkedOk = r.success
             } catch (e: Exception) {
