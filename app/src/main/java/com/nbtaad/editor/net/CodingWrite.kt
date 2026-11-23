@@ -18,14 +18,14 @@ class WriteOutcome(val steps: List<WriteStep>, val success: Boolean, val newNcdT
  * Durable coding writes to the NBT EVO head unit: read a backup, edit specific bits, re-sign, and
  * write through the authenticated UDS flow — the choreography from
  * vandelayautollc/nbt-evo-toolkit's `capabilities/coding/03-write-flow.md` (MIT licensed), ported
- * here rather than invented. Two specifics that reference itself flags as unverified (not firmware-
- * traced, not yet live-confirmed on a real car) are carried over honestly rather than hidden:
- *  - the exact payload `CheckCodingSignature`'s positive response carries (only "positive vs.
- *    negative" is checked here, same as the toolkit's own `write_coding.py`);
- *  - the CPS (`0x37FE`) payload bytes, where a single zero byte is used as a placeholder.
- * Everything else — the signing math, the L3 SecurityAccess handshake, the write order with the
- * signature last, the ownership (VIN) gate — is the part the toolkit's own self-test and on-car use
- * back up, and is what this file leans on.
+ * here rather than invented. One specific that reference itself flags as unverified (not firmware-
+ * traced, not yet live-confirmed on a real car) is carried over honestly rather than hidden: the exact
+ * payload `CheckCodingSignature`'s positive response carries (only "positive vs. negative" is checked
+ * here, same as the toolkit's own `write_coding.py`). The CPS (`0x37FE`) payload used to be a second
+ * such placeholder (a single zero byte); confirmed on-car 2026-11-23 that this ECU wants its own VIN's
+ * last 7 characters there instead - see the comment at that write site. Everything else — the signing
+ * math, the L3 SecurityAccess handshake, the write order with the signature last, the ownership (VIN)
+ * gate — is the part the toolkit's own self-test and on-car use back up, and is what this file leans on.
  */
 object CodingWrite {
     /** Every user coding datagroup on the NBT EVO (CAFD 00001EF6), incl. CAF_ID (0x300F) and the signature (0x3010). */
@@ -177,8 +177,14 @@ object CodingWrite {
                 steps.add(describeOutcome("CheckCodingSignature", check))
                 if (check !is Hsfz.CodingSession.Outcome.Positive) return WriteOutcome(steps, false, null)
 
-                // CPS payload: unverified placeholder — see this file's header.
-                steps.add(describeOutcome("Write CPS", session.writeDataByIdentifier(0x37FE, byteArrayOf(0x00))))
+                // CPS (0x37FE): confirmed on-car 2026-11-23 that the single-zero-byte placeholder this
+                // used to send gets NRC 0x13 (incorrectMessageLengthOrInvalidFormat) - and the read-back
+                // taken right after showed 0x37FE still held 7 ASCII bytes ("C233076") matching this
+                // car's own VIN's last 7 characters exactly. So the correct payload is the VIN's own
+                // last 7 characters, not an invented value - writing it back re-asserts the car's
+                // identity against the signature just written, rather than changing anything.
+                val cps = vin.takeLast(7).toByteArray(Charsets.ISO_8859_1)
+                steps.add(describeOutcome("Write CPS", session.writeDataByIdentifier(0x37FE, cps)))
                 steps.add(describeOutcome("Read back CPS", session.readDataByIdentifier(0x37FE)))
                 steps.add(describeOutcome("Reset head unit", session.ecuReset()))
 
