@@ -64,6 +64,8 @@ object Hsfz {
 
     private class Frame(val type: Int, val payload: ByteArray)
 
+    private fun ByteArray.toHexSpaced(): String = joinToString(" ") { "%02X".format(it) }
+
     private fun readFully(input: InputStream, buf: ByteArray): Boolean {
         var off = 0
         while (off < buf.size) {
@@ -247,17 +249,29 @@ object Hsfz {
         /** Sends one UDS request and returns its outcome, riding response-pending (`7F xx 78`) until [timeoutMs]. */
         fun exchange(uds: ByteArray, timeoutMs: Long = 5000): Outcome {
             val requestSid = uds[0].toInt() and 0xFF
+            AppLog.d("HSFZ", "-> ${uds.toHexSpaced()}")
             socket.getOutputStream().write(diagFrame(TESTER, HEAD_UNIT, uds))
             socket.getOutputStream().flush()
             val deadline = System.currentTimeMillis() + timeoutMs
             while (System.currentTimeMillis() < deadline) {
                 val f = readFrame(socket.getInputStream()) ?: return Outcome.NoResponse
+                AppLog.d("HSFZ", "<- type=0x%04X %s".format(f.type, f.payload.toHexSpaced()))
                 if (f.type != CW_DIAG || f.payload.size < 3) continue
                 val resp = f.payload.copyOfRange(2, f.payload.size)
                 if (resp.isEmpty()) continue
                 val sid = resp[0].toInt() and 0xFF
                 when {
                     sid == 0x7F -> {
+                        val echoedSid = if (resp.size >= 2) resp[1].toInt() and 0xFF else -1
+                        if (echoedSid != requestSid) {
+                            // Not a negative response to *this* request (stray/late frame for a
+                            // different one) - don't misattribute its NRC to us. Keep waiting.
+                            AppLog.w(
+                                "HSFZ",
+                                "ignoring 0x7F for SID 0x%02X while waiting on 0x%02X".format(echoedSid, requestSid),
+                            )
+                            continue
+                        }
                         val nrc = if (resp.size >= 3) resp[2].toInt() and 0xFF else -1
                         if (nrc == 0x78) continue // responsePending: the ECU is still working, keep waiting
                         return Outcome.Negative(nrc)

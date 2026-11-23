@@ -1064,6 +1064,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val outcome = com.nbtaad.editor.net.CodingWrite.writeCoding(ip, backup, fixes, ncdKey, l3Key, vin)
                 codingWriteLog = outcome.steps
+                for (s in outcome.steps) {
+                    if (s.ok) AppLog.i("Coding", "Write step - ${s.name}: ${s.detail}") else AppLog.w("Coding", "Write step - ${s.name}: ${s.detail}")
+                }
                 feedback = if (outcome.success) {
                     "Wrote ${fixes.size} coding bit(s). The head unit is resetting - press CHECK AGAIN once it's back, then CHECK CODINGS to confirm."
                 } else {
@@ -1093,6 +1096,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val outcome = com.nbtaad.editor.net.CodingWrite.revertCoding(ip, backup, ncdKey, l3Key, vin)
                 codingWriteLog = outcome.steps
+                for (s in outcome.steps) {
+                    if (s.ok) AppLog.i("Coding", "Revert step - ${s.name}: ${s.detail}") else AppLog.w("Coding", "Revert step - ${s.name}: ${s.detail}")
+                }
                 feedback = if (outcome.success) "Reverted to the backup." else "The revert stopped partway (see the log below)."
                 feedbackError = !outcome.success
             } catch (e: Exception) {
