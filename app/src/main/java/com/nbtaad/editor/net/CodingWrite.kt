@@ -227,18 +227,47 @@ object CodingWrite {
                 steps.add(describeOutcome("Enter coding session", coding))
                 if (coding !is Hsfz.CodingSession.Outcome.Positive) return steps
 
+                var levelOneWasFormatIssue = false
                 for (level in PROBE_LEVELS) {
                     val label = "Request seed, level 0x%02X".format(level)
-                    steps.add(
-                        when (val o = session.securityAccessSeed(level)) {
+                    val step = when (val o = session.securityAccessSeed(level)) {
+                        is Hsfz.CodingSession.Outcome.Positive -> {
+                            val seed = if (o.data.size > 2) o.data.copyOfRange(2, o.data.size) else ByteArray(0)
+                            WriteStep(label, true, "seed: ${seed.joinToString(" ") { "%02X".format(it) }}")
+                        }
+                        is Hsfz.CodingSession.Outcome.Negative -> WriteStep(label, false, "rejected (NRC 0x%02X)".format(o.nrc))
+                        Hsfz.CodingSession.Outcome.NoResponse -> WriteStep(label, false, "no response")
+                    }
+                    steps.add(step)
+                    // NRC 0x12 (subFunctionNotSupported) means this level doesn't exist here at all.
+                    // NRC 0x13 (incorrectMessageLengthOrInvalidFormat) on level 0x01 specifically means
+                    // the ECU *does* recognize 0x01 as a real level - it just didn't like the length or
+                    // shape of our 2-byte request. Those are different answers; only the second is
+                    // worth following up.
+                    if (level == 0x01 && step.detail.contains("0x13")) levelOneWasFormatIssue = true
+                }
+
+                // docs/keys.md's own seed->key construction folds in "the 4-byte testerId sent with
+                // requestSeed (00000000)" - worded as if that value is part of the request on the
+                // wire, not just an input to the later key math. If level 0x01 is real but our bare
+                // `27 01` is rejected for length/format, trying it with that testerId appended (and a
+                // few shorter/longer paddings in case the exact count differs) tells us directly
+                // whether that's the missing piece, instead of guessing further.
+                if (levelOneWasFormatIssue) {
+                    for (extraLen in 1..8) {
+                        val uds = byteArrayOf(0x27, 0x01) + ByteArray(extraLen)
+                        val label = "Request seed, level 0x01 + $extraLen zero byte(s)"
+                        val step = when (val o = session.exchange(uds)) {
                             is Hsfz.CodingSession.Outcome.Positive -> {
                                 val seed = if (o.data.size > 2) o.data.copyOfRange(2, o.data.size) else ByteArray(0)
                                 WriteStep(label, true, "seed: ${seed.joinToString(" ") { "%02X".format(it) }}")
                             }
                             is Hsfz.CodingSession.Outcome.Negative -> WriteStep(label, false, "rejected (NRC 0x%02X)".format(o.nrc))
                             Hsfz.CodingSession.Outcome.NoResponse -> WriteStep(label, false, "no response")
-                        },
-                    )
+                        }
+                        steps.add(step)
+                        if (step.ok) break
+                    }
                 }
             }
         } catch (e: Exception) {
