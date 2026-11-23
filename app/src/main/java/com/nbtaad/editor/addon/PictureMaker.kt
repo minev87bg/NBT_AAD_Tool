@@ -275,14 +275,84 @@ object PictureMaker {
     // ---------------- removing a drawn icon from a picture of its own place ----------------
 
     /**
+     * Whether [box] within a [w] x [h] picture looks like it could be a drawn icon rather than part of the tile's
+     * own background art: it keeps clear of every edge (an icon sits with a little room around it; a border, bevel
+     * or gradient a picture like this is drawn with usually runs flush along one), it is not a thin sliver (its
+     * longer side is at most three times its shorter one - checked against real head-unit tile pictures, where a
+     * bright strip of edge chrome came back far longer and thinner than any real icon would be), and its size is
+     * reasonable (not a speck of noise, not covering so much of the picture that it is surely something else).
+     */
+    private fun looksLikeIcon(box: Box, w: Int, h: Int): Boolean {
+        if (box.x <= 0 || box.y <= 0 || box.x + box.w >= w || box.y + box.h >= h) return false
+        val longer = maxOf(box.w, box.h)
+        val shorter = minOf(box.w, box.h)
+        if (longer > shorter * 3) return false
+        val area = box.w * box.h
+        return area in 30..(w * h / 3)
+    }
+
+    /**
+     * The box of the biggest group of neighbouring pixels in [src] whose own brightness (its red, green and blue
+     * added together) is over [threshold], if that box [looksLikeIcon]: a plainly drawn icon lit clearly brighter
+     * than the gradient tile it sits on (as Baidu's own CarLife icon is) stands out this way, tighter than flood-
+     * filling in from the edges can manage, since a flood fill tends to sweep up a soft halo or gradient transition
+     * right around the icon along with it instead of stopping cleanly at its edge.
+     */
+    private fun brightBox(src: Pixels, threshold: Int): Box? {
+        val w = src.width
+        val h = src.height
+        val bright = BooleanArray(w * h) { i ->
+            val c = src.argb[i]
+            ((c shr 16 and 0xFF) + (c shr 8 and 0xFF) + (c and 0xFF)) > threshold
+        }
+        val seen = BooleanArray(w * h)
+        val queue = IntArray(w * h)
+        var best: Box? = null
+        var bestSize = 0
+        for (start in 0 until w * h) {
+            if (!bright[start] || seen[start]) continue
+            var head = 0
+            var tail = 0
+            queue[tail++] = start
+            seen[start] = true
+            var x0 = w
+            var y0 = h
+            var x1 = -1
+            var y1 = -1
+            var size = 0
+            while (head < tail) {
+                val i = queue[head++]
+                val x = i % w
+                val y = i / w
+                size++
+                if (x < x0) x0 = x
+                if (x > x1) x1 = x
+                if (y < y0) y0 = y
+                if (y > y1) y1 = y
+                for (dy in -1..1) for (dx in -1..1) {
+                    if (dx == 0 && dy == 0) continue
+                    val nx = x + dx
+                    val ny = y + dy
+                    if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue
+                    val j = ny * w + nx
+                    if (bright[j] && !seen[j]) { seen[j] = true; queue[tail++] = j }
+                }
+            }
+            if (size <= bestSize) continue
+            val box = Box(x0, y0, x1 - x0 + 1, y1 - y0 + 1)
+            if (looksLikeIcon(box, w, h)) { bestSize = size; best = box }
+        }
+        return best
+    }
+
+    /**
      * The bounding box of the compact shape in [src] not reached by flood-filling in from every edge, moving only
      * between neighbours whose colours are close (within [tolerance] of each other, not of one fixed colour, so a
      * background that shades smoothly from edge to edge is still all one reach even though its two far corners may
-     * differ by a lot). An icon drawn on a place like that stands out: its edge is a sharp jump in colour, so the
-     * fill does not cross into it, and it comes back as an unreached "island". Null when (almost) everything is
-     * reached (no clear icon), (almost) nothing is, or what is left is not compact - its box covers most of the
-     * picture's own width or height, which (checked against real head-unit tile pictures) is a sign the fill leaked
-     * along a smoothly shaded run of actual background rather than stopping at an icon's edge, not a real icon.
+     * differ by a lot), if that box [looksLikeIcon]. An icon drawn on a place like that stands out: its edge is a
+     * sharp jump in colour, so the fill does not cross into it, and it comes back as an unreached "island". Null
+     * when (almost) everything is reached (no clear icon), (almost) nothing is, or what is left does not look like
+     * an icon.
      */
     private fun islandBox(src: Pixels, tolerance: Int): Box? {
         val w = src.width
@@ -320,15 +390,21 @@ object PictureMaker {
             if (y < y0) y0 = y
             if (y > y1) y1 = y
         }
-        val boxW = x1 - x0 + 1
-        val boxH = y1 - y0 + 1
-        if (boxW > w * 7 / 10 || boxH > h * 7 / 10) return null
-        return Box(x0, y0, boxW, boxH)
+        val box = Box(x0, y0, x1 - x0 + 1, y1 - y0 + 1)
+        return box.takeIf { looksLikeIcon(it, w, h) }
     }
 
-    /** [islandBox] tried at a few tolerances, tighter first, so a softly drawn (anti-aliased) edge is still found as
-     *  long as some tolerance makes a clear, compact box of it. Null when none does. */
+    /**
+     * Where [src]'s own icon sits: tried first by brightness ([brightBox], tightest threshold first - the more
+     * reliable of the two for an icon plainly lit brighter than its tile, which is the one thing this is built to
+     * find), then, only if no threshold finds a clear, icon-shaped group of pixels, by flood-filling in from the
+     * edges ([islandBox], tightest tolerance first) instead, for an icon that does not stand out by brightness
+     * alone. Null when neither finds anything that looks like an icon.
+     */
     private fun findIconBox(src: Pixels): Box? {
+        for (t in intArrayOf(600, 550, 500, 450, 400, 350)) {
+            brightBox(src, t)?.let { return it }
+        }
         for (t in intArrayOf(10, 16, 22, 28, 36, 44)) {
             islandBox(src, t)?.let { return it }
         }

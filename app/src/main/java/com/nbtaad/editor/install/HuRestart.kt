@@ -9,8 +9,11 @@ import com.nbtaad.editor.log.AppLog
  * Without that command it uses the one Sq00ky's install guide gives after a plugin is installed, `OnOffDSICommander
  * appreset`, which restarts only the HMI (the iDrive software): the report says which of the two it was (`ST kind full` or
  * `ST kind hmi`), because only a full restart runs the start files again (the tile's boot hook is one). Both are run after a
- * few seconds' delay, so that the report can be read first. A head unit with neither says so, and the person is told to
- * hold the power button, which is what the projects' guides say anyway.
+ * few seconds' delay, so that the report can be read first. Neither command needs to sit in one of the usual places: when
+ * it is not, a plain, read-only search of the whole file system looks for it by name before giving up (this costs nothing
+ * when the fast check above already found it, and nothing worse than before when the wider search finds nothing either -
+ * a shell with no `find` just answers empty, the same as not having the command). A head unit with neither, anywhere,
+ * says so, and the person is told to hold the power button, which is what the projects' guides say anyway.
  */
 object HuRestart {
     private val places = listOf("/sbin", "/usr/sbin", "/bin", "/usr/bin", "/proc/boot", "/usr/local/bin")
@@ -38,6 +41,14 @@ object HuRestart {
                 [ -z "¤APP" ] && APP=¤R¤d/OnOffDSICommander
               fi
             done
+            if [ -z "¤CMD" ]; then
+              F=¤(find ¤R/ -xdev -maxdepth 9 -type f -name shutdown 2>/dev/null | head -1)
+              if [ -n "¤F" ]; then echo "INFO shutdown found by a wider search, at ¤F"; CMD=¤F; fi
+            fi
+            if [ -z "¤APP" ]; then
+              F=¤(find ¤R/ -xdev -maxdepth 9 -type f -name OnOffDSICommander 2>/dev/null | head -1)
+              if [ -n "¤F" ]; then echo "INFO OnOffDSICommander found by a wider search, at ¤F"; APP=¤F; fi
+            fi
             if [ -n "¤CMD" ]; then
               ( trap '' 1; sleep $delaySeconds; ¤CMD -b ) < /dev/null > /dev/null 2>&1 &
               echo "ST kind full"
@@ -52,6 +63,7 @@ object HuRestart {
               echo "END 0"
               exit 0
             fi
+            echo "INFO a wider search of the whole file system found neither command either"
             echo "ERR $NO_COMMAND"
             echo "END 1"
             exit 1
