@@ -52,7 +52,8 @@ class MenuLookTest {
     fun aGoodKitIsTakenFromTheZip() {
         val kit = MenuLookKits.parse(zipOf("aa-menu-look/", kitFiles()))
         assertTrue(kit.problems.toString(), kit.ok)
-        assertEquals("aa-menu-look 2", kit.title)
+        assertEquals("aa-menu-look", kit.title)
+        assertEquals("2", kit.version)
         assertFalse(kit.known)
         assertTrue(kit.notes.any { it.contains("not identical") })
     }

@@ -54,7 +54,7 @@ class TileKitTest {
         assertTrue(kit.problems.toString(), kit.ok)
         assertEquals(setOf("aa-tile", "aa-tile-launcher.sh", "hook.txt"), kit.files.keys)
         assertEquals("5", kit.version)
-        assertEquals("nbt-aa-tile 5", kit.title)
+        assertEquals("nbt-aa-tile", kit.title)
         // not a build the app has the hashes of
         assertFalse(kit.known)
         assertTrue(kit.notes.any { it.contains("not identical") })
@@ -154,7 +154,7 @@ class TileKitTest {
         assertTrue(r.appliesInApp)
         assertEquals("Installable now", r.headline)
         assertTrue(r.answer.startsWith("Yes"))
-        assertEquals("nbt-aa-tile 5", AddOns.tileKitOf("tile.zip", zip)?.title)
+        assertEquals("nbt-aa-tile", AddOns.tileKitOf("tile.zip", zip)?.title)
     }
 
     @Test
