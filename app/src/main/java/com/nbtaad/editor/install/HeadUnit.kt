@@ -109,12 +109,15 @@ object HeadUnit {
         private fun fmt(ns: Long) = String.format(java.util.Locale.US, "%.1f s", ns / 1e9)
     }
 
+    // No `| head` here - a Tools Check run against this exact QNX image (2026-11-23) confirmed it has
+    // no `head` binary at all, so piping to it would silently lose this diagnostic's output right when
+    // it matters most. `.take(900)` below is the only truncation, same overall cap as before.
     private fun diagnoseFolders(ssh: SshSession): String =
         ssh.exec(
-            "echo '/opt:'; ls /opt 2>&1 | head -12; echo '/net:'; ls /net 2>&1 | head -12; " +
-                "echo 'hu-omap opt:'; ls /net/hu-omap/fs/sda0/opt 2>&1 | head -12; " +
-                "echo 'nbtapp:'; ls /var/opt/nbtapp /var/opt/nbtapp/apps /var/opt/nbtapp/data 2>&1 | head -12; " +
-                "echo 'hu-omap nbtapp:'; ls /net/hu-omap/var/opt/nbtapp /net/hu-omap/var/opt/nbtapp/apps 2>&1 | head -12"
+            "echo '/opt:'; ls /opt 2>&1; echo '/net:'; ls /net 2>&1; " +
+                "echo 'hu-omap opt:'; ls /net/hu-omap/fs/sda0/opt 2>&1; " +
+                "echo 'nbtapp:'; ls /var/opt/nbtapp /var/opt/nbtapp/apps /var/opt/nbtapp/data 2>&1; " +
+                "echo 'hu-omap nbtapp:'; ls /net/hu-omap/var/opt/nbtapp /net/hu-omap/var/opt/nbtapp/apps 2>&1"
         ).text.trim().take(900)
 
     /** Android Auto is on the head unit, but not where this app puts it (/opt/aa) or where NBTApps does. */

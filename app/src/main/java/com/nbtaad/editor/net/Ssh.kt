@@ -192,13 +192,18 @@ object EnvRemote {
     private fun findDir(ssh: SshSession): String? =
         com.nbtaad.editor.install.HeadUnit.envFolder(ssh)
 
-    /** What the login shell can see, shown to the user when the folder is not found. */
+    /**
+     * What the login shell can see, shown to the user when the folder is not found. No `| head` here -
+     * a Tools Check run against this exact QNX image (2026-11-23) confirmed it has no `head` binary at
+     * all, so piping to it would silently lose this diagnostic's output right when it matters most.
+     * `.take(600)` below is the only truncation, same overall cap as before.
+     */
     private fun diagnose(ssh: SshSession): String {
         val r = ssh.exec(
-            "echo '/opt:'; ls /opt 2>&1 | head -12; echo '/net:'; ls /net 2>&1 | head -12; " +
-                "echo 'hu-omap opt:'; ls /net/hu-omap/fs/sda0/opt 2>&1 | head -12; " +
-                "echo 'nbtapp:'; ls /var/opt/nbtapp /var/opt/nbtapp/apps /var/opt/nbtapp/data 2>&1 | head -12; " +
-                "echo 'hu-omap nbtapp:'; ls /net/hu-omap/var/opt/nbtapp /net/hu-omap/var/opt/nbtapp/data 2>&1 | head -12"
+            "echo '/opt:'; ls /opt 2>&1; echo '/net:'; ls /net 2>&1; " +
+                "echo 'hu-omap opt:'; ls /net/hu-omap/fs/sda0/opt 2>&1; " +
+                "echo 'nbtapp:'; ls /var/opt/nbtapp /var/opt/nbtapp/apps /var/opt/nbtapp/data 2>&1; " +
+                "echo 'hu-omap nbtapp:'; ls /net/hu-omap/var/opt/nbtapp /net/hu-omap/var/opt/nbtapp/data 2>&1"
         )
         return r.text.trim().take(600)
     }
