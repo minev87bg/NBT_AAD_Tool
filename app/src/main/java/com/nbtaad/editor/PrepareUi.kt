@@ -127,7 +127,7 @@ fun PrepareScreen(vm: MainViewModel) {
         Spacer(Modifier.height(12.dp))
         when {
             vm.detect.ssh -> {
-                Text("SSH is open. The head unit is ready for Android Auto.", fontSize = 13.sp, color = Green)
+                Text("SSH is open.", fontSize = 13.sp, color = Green)
             }
             vm.detect.zgw != null -> {
                 Text(
@@ -166,22 +166,7 @@ fun PrepareScreen(vm: MainViewModel) {
         AlertDialog(
             onDismissRequest = { vm.showCodingDetail = false },
             title = { Text("Coding check") },
-            text = {
-                Column(Modifier.heightIn(max = 340.dp).verticalScroll(rememberScrollState())) {
-                    val res = vm.codingResults ?: emptyList()
-                    if (res.isEmpty()) {
-                        Text("Nothing read yet.")
-                    } else {
-                        for ((group, bits) in res.groupBy { it.bit.group }) {
-                            Text(
-                                group, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 10.dp),
-                            )
-                            for (r in bits) CodingRow(r)
-                        }
-                    }
-                }
-            },
+            text = { CodingCheckConsole(vm.codingResults ?: emptyList(), maxHeight = 340.dp) },
             confirmButton = { TextButton(onClick = { vm.showCodingDetail = false }) { Text("CLOSE") } },
         )
     }
@@ -349,7 +334,8 @@ private fun WriteCodingSection(vm: MainViewModel) {
             Text(
                 if (backup.ok) "Backup read: ${backup.vin}, ${backup.mem?.size ?: 0} coding bytes."
                 else "Backup read failed (${backup.steps.lastOrNull { !it.ok }?.detail ?: "see log"}).",
-                fontSize = 12.sp, color = if (backup.ok) Green else Red, modifier = Modifier.weight(1f),
+                fontSize = 15.sp, fontWeight = FontWeight.Medium,
+                color = if (backup.ok) Green else Red, modifier = Modifier.weight(1f),
             )
             TextButton(onClick = { vm.removeCodingBackup() }, modifier = Modifier.padding(start = 2.dp)) {
                 Text("✕", color = Red, fontWeight = FontWeight.Bold)
@@ -456,19 +442,34 @@ private fun WriteLogConsole(log: List<com.nbtaad.editor.net.WriteStep>, maxHeigh
     }
 }
 
+/** The (i) popup's content: every coding bit, flat (no group headers), console-style - green if it passed, red if not. */
 @Composable
-private fun CodingRow(r: com.nbtaad.editor.net.CodingResult) {
-    val (dotColor, note) = when (r.status) {
-        com.nbtaad.editor.net.CodingStatus.SET -> Green to "Set"
-        com.nbtaad.editor.net.CodingStatus.NOT_SET -> Red to "Not set (reads as ${r.rawValue})"
-        com.nbtaad.editor.net.CodingStatus.UNCERTAIN -> MaterialTheme.colorScheme.onSurfaceVariant to "Reads as ${r.rawValue} — check on the car"
-        com.nbtaad.editor.net.CodingStatus.UNREADABLE -> MaterialTheme.colorScheme.onSurfaceVariant to "Couldn't read"
-    }
-    Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(8.dp).clip(CircleShape).background(dotColor))
-        Column(Modifier.padding(start = 10.dp)) {
-            Text(r.bit.token, fontSize = 13.sp, maxLines = 1)
-            Text(note, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun CodingCheckConsole(results: List<com.nbtaad.editor.net.CodingResult>, maxHeight: Dp) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(max = maxHeight)
+            .background(Color(0xFF0E120E), RoundedCornerShape(6.dp))
+            .verticalScroll(rememberScrollState())
+            .padding(8.dp),
+    ) {
+        if (results.isEmpty()) {
+            Text("Nothing read yet.", fontSize = 12.sp, color = Color(0xFFD0D4D0))
+        }
+        for (r in results) {
+            val passed = r.status == com.nbtaad.editor.net.CodingStatus.SET
+            val note = when (r.status) {
+                com.nbtaad.editor.net.CodingStatus.SET -> "SET"
+                com.nbtaad.editor.net.CodingStatus.NOT_SET -> "NOT SET (reads ${r.rawValue})"
+                com.nbtaad.editor.net.CodingStatus.UNCERTAIN -> "reads ${r.rawValue}"
+                com.nbtaad.editor.net.CodingStatus.UNREADABLE -> "couldn't read"
+            }
+            Text(
+                "${r.bit.token}: $note",
+                fontSize = 12.sp, lineHeight = 16.sp, fontFamily = FontFamily.Monospace,
+                color = if (passed) Color(0xFF7CD68A) else Color(0xFFFF8A80),
+                modifier = Modifier.padding(top = 2.dp),
+            )
         }
     }
 }

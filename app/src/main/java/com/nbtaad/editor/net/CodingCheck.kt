@@ -22,10 +22,11 @@ data class CodingBit(
     val byteOffset: Int,
     val mask: Int,
     /**
-     * The value (after the mask's bits are shifted down) that means "on"/AKTIV. Null for a field
-     * whose on-value the map doesn't pin down yet (currently only REMOTE_HMI, a multi-bit access
-     * level whose only documented value is "2 = Restricted") — shown as the raw number instead of
-     * a set/not-set verdict.
+     * The value (after the mask's bits are shifted down) that means "on"/AKTIV; null for a field
+     * whose on-value the map doesn't pin down yet (shown as the raw number instead of a set/not-set
+     * verdict). REMOTE_HMI used to be that one exception - the reference map's only documented value
+     * for it was "2 = Restricted", but confirmed on-car 2026-11-23 that 1 is what this car's own
+     * successful Android Auto setup actually reads back there, so 1 - not 2 - is AKTIV for this bit.
      */
     val expectedOn: Int?,
 )
@@ -33,7 +34,7 @@ data class CodingBit(
 val CODING_BITS: List<CodingBit> = listOf(
     CodingBit(
         "3000 HMI", "REMOTE_HMI", "Remote HMI access level",
-        datagroup = 0x3000, byteOffset = 0x6B, mask = 0x70, expectedOn = null,
+        datagroup = 0x3000, byteOffset = 0x6B, mask = 0x70, expectedOn = 1,
     ),
     CodingBit(
         "3000 HMI", "A4A", "Apps for Auto (A4A) master enable",
