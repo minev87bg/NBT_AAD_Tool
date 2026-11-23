@@ -65,7 +65,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.coroutines.coroutineContext
 
-enum class Screen { DETECT, HUB, OPTIONS, INSTALL, EXPERIMENTAL, CONTRIBUTE, WIZARD, TILE, MENULOOK, ADDONS, PREPARE, SIGNING_TOOLS }
+enum class Screen { HUB, OPTIONS, INSTALL, EXPERIMENTAL, CONTRIBUTE, WIZARD, TILE, MENULOOK, ADDONS, PREPARE, SIGNING_TOOLS }
 enum class UpdatePhase { IDLE, CHECKING, CURRENT, AVAILABLE, DOWNLOADING, FAILED }
 enum class SaveStatus { RUNNING, OK, FAIL }
 enum class LineKind { INFO, OK, ERROR }
@@ -111,7 +111,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val storage = Storage(ctx)
     private val themePrefs = ThemePrefs(ctx)
 
-    private var screenState by mutableStateOf(Screen.DETECT)
+    private var screenState by mutableStateOf(Screen.HUB)
     var screen: Screen
         get() = screenState
         set(v) {
@@ -271,12 +271,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         themePrefs.write(themeMode)
     }
 
-    // ---------------- screen 1: detect ----------------
+    // ---------------- detecting the car ----------------
     var busy by mutableStateOf(false)
     var resetting by mutableStateOf(false)
     private var feedbackState by mutableStateOf("")
 
-    /** The line under DETECT CAR; whatever it says is also written to the log. */
+    /** The line a page shows while it looks for the car or resets it; whatever it says is also written to the log. */
     var feedback: String
         get() = feedbackState
         set(v) {
@@ -285,7 +285,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     var feedbackError by mutableStateOf(false)
     var detect by mutableStateOf(DetectState())
-    var confirmReset by mutableStateOf(false)
 
     /**
      * The progress of a reset that was started from a result window (install, go back, save): null while none is shown.
@@ -298,7 +297,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------------- the car's network and the dongle (this session only) ----------------
 
-    /** The WiFi the car answered on at the last good DETECT CAR; null before one, and while DETECT CAR looks again. */
+    /** The WiFi the car answered on at the last good look for it; null before one, and while it looks again. */
     var carNet by mutableStateOf<CarNet?>(null); private set
 
     /** The dongle's WiFi name and password as the person gave them. In memory only: gone when the app closes. */
@@ -367,7 +366,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         catalog = loaded.options
         catalogSource = loaded.source
         catalogSavedAt = loaded.savedAt
-        syncCatalog()
+        // synchronized again every time the settings page opens (openOptions), not here: that is where it is shown
     }
 
     // ---------------- updates of this app (from the project's GitHub releases) ----------------
@@ -394,15 +393,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** What the system installer answered after the file was handed over (cancelled, refused, done). */
     val installMessage: String? get() = InstallEvents.message
-
-    /** The "Check for updates" button: the app and the list of settings, now (they are also checked at every start). */
-    fun checkForUpdates() {
-        syncCatalog()
-        checkUpdate()
-    }
-
-    val checkingForUpdates: Boolean
-        get() = syncBusy || updatePhase == UpdatePhase.CHECKING || updatePhase == UpdatePhase.DOWNLOADING
 
     /** Looks for a newer release on GitHub. Needs internet; with none it stays quiet (the settings sync says so). */
     fun checkUpdate() {
@@ -534,55 +524,26 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         return CarDetector.detect(hints, progress)
     }
 
-    fun onDetect() {
-        if (busy) return
-        pollJob?.cancel()
-        resetting = false
-        busy = true
-        feedbackError = false
-        feedback = "Starting…"
-        detect = DetectState()
-        carNet = null // the network is marked again by the new look, if the car answers
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                NetworkBinder.bindToLocalNetwork(ctx)
-                val r = detectCar { feedback = it }
-                applyResult(r)
-            } catch (e: Exception) {
-                AppLog.e("Detect", "Detection failed", e)
-                feedbackError = true
-                feedback = "Detection failed: ${friendlyError(e)}"
-            } finally {
-                busy = false
-            }
-        }
-    }
-
-    /**
-     * [showNextHint] is false from [checkCodings] - that reuses this same detect+apply step to refresh
-     * ZGW/SSH/VIN, but Prepare headunit has no NEXT button, so the "Press NEXT." instruction it's written
-     * for would be meaningless there (and was leaking onto that page on every CHECK CODINGS tap).
-     */
-    private fun applyResult(r: DetectResult, showNextHint: Boolean = true) {
+    /** The detection every page does for itself when it needs the head unit (see [rescanForHost]), or [checkCodings], [setManual] and [resetHeadUnit] redo it to refresh what is known. */
+    private fun applyResult(r: DetectResult) {
         AppLog.i("Detect", "Applied: gateway ${r.zgwIp}, VIN ${r.vin}, head unit ${r.huIp}, SSH ${r.sshOpen}, problem ${r.problem}")
         detect = DetectState(r.zgwIp != null || r.viaCarWifi, r.zgwIp, r.huIp, r.vin, r.sshOpen, r.viaCarWifi, r.pfBlocked)
         feedbackError = false
-        val nextHint = if (showNextHint) " Press NEXT." else ""
         feedback = when {
             r.pfBlocked -> {
                 feedbackError = true
                 r.problem ?: HeadUnitLight.PF_PROBLEM
             }
-            r.viaCarWifi && r.sshOpen -> "Connected through the car's Android Auto WiFi (no car gateway needed). SSH is open.$nextHint"
+            r.viaCarWifi && r.sshOpen -> "Connected through the car's Android Auto WiFi (no car gateway needed). SSH is open."
             r.viaCarWifi -> {
                 feedbackError = true
-                r.problem ?: "The head unit answers over the car's WiFi, but SSH did not work. Press DETECT CAR again."
+                r.problem ?: "The head unit answers over the car's WiFi, but SSH did not work. Try again."
             }
             r.zgwIp == null -> {
                 feedbackError = true
                 r.problem ?: "No car detected."
             }
-            r.huIp != null && r.sshOpen -> "Car found. SSH is open.$nextHint"
+            r.huIp != null && r.sshOpen -> "Car found. SSH is open."
             r.huIp != null -> "Car found, but SSH (port 22) is closed. Use the reset button next to the red dot."
             else -> "Car found, but no head unit with SSH was found. Use the reset button or set the IPs manually."
         }
@@ -717,7 +678,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 val ssh = h?.let { CarDetector.sshOpen(it) } ?: false
                 detect = DetectState(z != null || h != null, z, h, vin, ssh)
                 feedback = when {
-                    h != null && ssh -> "SSH is open on $h. Press NEXT."
+                    h != null && ssh -> "SSH is open on $h."
                     h != null -> "SSH is closed on $h."
                     else -> "Gateway set. Enter the head unit address too."
                 }
@@ -732,13 +693,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Reset the head unit through the ZGW (no SSH), then keep checking until SSH opens. The car is scanned again first,
-     * as DETECT CAR does, so the reset goes to the gateway as it is now (the addresses of an earlier scan may be old);
-     * only when the scan finds nothing, the address that was known is tried. [fromWindow]: it was started from a result
-     * window, which shows the progress as [resetNote] instead of the feedback line of the first screen.
+     * Reset the head unit through the ZGW (no SSH), then keep checking until SSH opens. The car is scanned again
+     * first, so the reset goes to the gateway as it is now (the addresses of an earlier scan may be old); only when
+     * the scan finds nothing, the address that was known is tried. [fromWindow]: it was started from a result
+     * window, which shows the progress as [resetNote] instead of the shared feedback line.
      */
     fun resetHeadUnit(fromWindow: Boolean = false) {
-        confirmReset = false
         pollJob?.cancel()
         resetting = true
         feedbackError = false
@@ -799,13 +759,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     val (hu, open) = CarDetector.findHeadUnit(CarDetector.localNetworks(), gw)
                     if (hu != null) detect = detect.copy(hu = hu, ssh = open)
                     if (open) {
-                        feedback = "Head unit is back and SSH is open. Press NEXT."
+                        feedback = "Head unit is back and SSH is open."
                         note("The head unit is back.")
                         return@launch
                     }
                 }
                 feedbackError = true
-                feedback = "SSH did not open within 4 minutes. Check the head unit, then press DETECT CAR."
+                feedback = "SSH did not open within 4 minutes. Check the head unit, then try again."
                 note("The head unit did not come back within 4 minutes.")
             } catch (e: Exception) {
                 AppLog.e("Reset", "Reset failed", e)
@@ -870,12 +830,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val seen = HeadUnitLight.see(host)
             if (HeadUnitLight.judge(listOf(seen), true).green) {
                 detect = detect.copy(hu = host, ssh = true)
-                feedback = "Head unit is back and SSH is open. Press NEXT."
+                feedback = "Head unit is back and SSH is open."
                 note("The head unit is back.")
                 return
             }
         }
-        val text = "The head unit restarted. SSH answers again once Android Auto is connected to the phone again: start it, then press DETECT CAR."
+        val text = "The head unit restarted. SSH answers again once Android Auto is connected to the phone again: start it, then try again."
         AppLog.i("Reset", text)
         feedback = text
         note(text)
@@ -883,12 +843,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** A reset can be sent: through the car's gateway, or, on the car's Android Auto WiFi where there is none, asked of the head unit's shell. */
     val canResetHeadUnit: Boolean get() = (detect.zgw != null && detect.vin != null) || (detect.hu != null && detect.ssh)
-
-    /**
-     * The head unit can be prepared: today that means opening its SSH, which needs the car's own Ethernet gateway
-     * (ZGW); already having SSH is enough too, so the page still shows that it is open.
-     */
-    val canPrepareHeadUnit: Boolean get() = detect.zgw != null || (detect.hu != null && detect.ssh)
 
     /** What "Check codings" on the Prepare headunit page last found; null before it has run once. */
     var codingResults by mutableStateOf<List<com.nbtaad.editor.net.CodingResult>?>(null)
@@ -919,12 +873,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
 
     /**
-     * "Check codings": used to just read the AA coding bits; reaching this page already means the
-     * car's gateway (ZGW) was found, so CHECK AGAIN (a separate, standalone refresh) was redundant
-     * here - this now also does what that button did first (re-detect the car, refreshing SSH/ZGW/
-     * VIN), then reads the handful of individual coding bits Android Auto needs straight from the
-     * head unit over that gateway. A plain read either way - no SecurityAccess, no key, nothing
-     * written to the car or its Vehicle Order.
+     * "Check codings": the page is reachable with no car known yet, so this detects the car first (refreshing
+     * SSH/ZGW/VIN, same as any other page's own look for it), then reads the handful of individual coding bits
+     * Android Auto needs straight from the head unit over that gateway. A plain read either way - no
+     * SecurityAccess, no key, nothing written to the car or its Vehicle Order.
      */
     fun checkCodings() {
         if (codingChecking) return
@@ -934,7 +886,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 NetworkBinder.bindToLocalNetwork(ctx)
                 val r = detectCar { feedback = it }
-                applyResult(r, showNextHint = false)
+                applyResult(r)
                 val ip = detect.zgw
                 codingResults = if (ip != null) com.nbtaad.editor.net.CodingCheck.checkAll(ip) else null
             } catch (e: Exception) {
@@ -1350,8 +1302,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private var scanProblem: String? = null
 
     /**
-     * Looks for the car (what DETECT CAR does) for an action that needs the head unit and has no address, or whose
-     * address does not answer; returns the head unit's address when SSH answers there.
+     * Looks for the car for an action that needs the head unit and has no address, or whose address does not
+     * answer; returns the head unit's address when SSH answers there. Every page that needs the car does this for
+     * itself, instead of a dedicated detection step before the rest of the app is reachable.
      */
     private fun rescanForHost(): String? {
         NetworkBinder.bindToLocalNetwork(ctx)
@@ -1370,20 +1323,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // =====================================================================
     // Navigation between the screens
     // =====================================================================
-
-    /** NEXT on the first screen: the page where the person chooses what to do. */
-    fun onNext() {
-        screen = Screen.HUB
-    }
-
-    /**
-     * SKIP on the first screen: on to the rest of the app without a car (to look at the releases, or to try the app away
-     * from the car). What needs the head unit says so when it is used.
-     */
-    fun onSkip() {
-        AppLog.i("Detect", "Skipped: on to the choice page with gateway ${detect.zgw}, head unit ${detect.hu}")
-        screen = Screen.HUB
-    }
 
     // ---------------- the app log ----------------
     var showLog by mutableStateOf(false)
@@ -1427,7 +1366,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * gateway, ZGW); later, checking and changing its coding as well.
      */
     fun choosePrepare() {
-        // The detection screen's own status ("...Press NEXT.") has no NEXT button to point to here -
         // start this page clean; a tap on CHECK CODINGS/READ BACKUP/etc. sets its own feedback right away.
         feedback = ""
         feedbackError = false
@@ -1541,10 +1479,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         screen = Screen.OPTIONS
-    }
-
-    fun backToDetect() {
-        screen = Screen.DETECT
+        syncCatalog() // this page shows whether the list of settings is up to date, so it checks every time it opens
     }
 
     // =====================================================================

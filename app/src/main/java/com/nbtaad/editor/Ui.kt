@@ -112,7 +112,6 @@ fun App(vm: MainViewModel) {
     Surface(Modifier.fillMaxSize().safeDrawingPadding()) {
         Box(Modifier.fillMaxSize()) {
             when (vm.screen) {
-                Screen.DETECT -> DetectScreen(vm)
                 Screen.HUB -> HubScreen(vm)
                 Screen.OPTIONS -> SettingsTheme { OptionsScreen(vm) }
                 Screen.INSTALL -> InstallTheme { InstallScreen(vm) }
@@ -189,12 +188,13 @@ private fun ThemeToggle(vm: MainViewModel, modifier: Modifier) {
 }
 
 // =========================================================================
-// Screen 1: DETECT CAR
+// Shared with the Hub page (the app's home page)
 // =========================================================================
 
-/** The three dots at the top right of the first screen: the tools that are not needed every time. */
+/** The three dots at the top right of the Hub page: the tools that are not needed every time. The app log has its
+ *  own button on that page already, so it is not repeated here. */
 @Composable
-private fun MoreMenu(vm: MainViewModel, modifier: Modifier) {
+internal fun MoreMenu(vm: MainViewModel, modifier: Modifier) {
     var open by remember { mutableStateOf(false) }
     val dot = MaterialTheme.colorScheme.onSurfaceVariant
     Box(modifier) {
@@ -210,119 +210,8 @@ private fun MoreMenu(vm: MainViewModel, modifier: Modifier) {
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             DropdownMenuItem(text = { Text("Manual IPs") }, onClick = { open = false; vm.manualDialog = true })
             DropdownMenuItem(text = { Text("Port probe") }, onClick = { open = false; vm.openProbe() })
-            DropdownMenuItem(text = { Text("App log") }, onClick = { open = false; vm.showLog = true })
         }
     }
-}
-
-@Composable
-private fun DetectScreen(vm: MainViewModel) {
-    val st = vm.detect
-    val canNext = st.carFound && st.hu != null && st.ssh
-
-    BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        val h = maxHeight
-
-        // button + feedback sit in the middle of the screen
-        Button(
-            onClick = { vm.onDetect() },
-            enabled = !vm.busy,
-            modifier = Modifier.align(Alignment.TopCenter).offset(y = h * 0.5f - 20.dp),
-        ) { Text("DETECT CAR") }
-
-        // on to the rest of the app without a car (to look around, or to try things away from the car)
-        TextButton(
-            onClick = { vm.onSkip() },
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
-            modifier = Modifier.align(Alignment.TopCenter).offset(y = h * 0.5f + 22.dp).height(28.dp),
-        ) { Text("Skip", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-
-        if (st.pfBlocked) {
-            // the packet filter blocks SSH: what to do, and a live look that turns green by itself and then detects the car again
-            Column(
-                Modifier.align(Alignment.TopCenter).offset(y = h * 0.5f + 44.dp).fillMaxWidth()
-                    .heightIn(max = h * 0.5f - 90.dp).verticalScroll(rememberScrollState()),
-            ) {
-                HeadUnitGate(vm, paused = vm.busy, onGreen = { vm.onDetect() })
-            }
-        } else {
-            Text(
-                vm.feedback,
-                fontSize = 12.sp,
-                color = if (vm.feedbackError) Red else Color.Unspecified,
-                textAlign = TextAlign.Center,
-                maxLines = 4,
-                modifier = Modifier.align(Alignment.TopCenter).offset(y = h * 0.5f + 54.dp).fillMaxWidth(),
-            )
-        }
-
-        // information table at about 3/4 of the screen
-        if (st.carFound) {
-            InfoTable(
-                st, vm,
-                Modifier.align(Alignment.TopCenter).offset(y = h * 0.66f).fillMaxWidth(0.92f),
-            )
-        }
-
-        // is the list of settings up to date? (needs internet once; afterwards it is kept on the phone)
-        Column(
-            Modifier.align(Alignment.TopCenter).padding(top = 40.dp).fillMaxWidth(0.92f),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                vm.syncMessage,
-                fontSize = 12.sp,
-                color = if (vm.syncOk) Green else MaterialTheme.colorScheme.onSurfaceVariant,
-                fontWeight = if (vm.syncOk) FontWeight.SemiBold else FontWeight.Normal,
-                textAlign = TextAlign.Center,
-            )
-            UpdateBanner(vm)
-            if (vm.updateOffer == null) {
-                // under the text that changes when it is pressed: the result appears where the eyes already are
-                TextButton(
-                    onClick = { vm.checkForUpdates() },
-                    enabled = !vm.checkingForUpdates,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                    modifier = Modifier.height(32.dp),
-                ) { Text("Check for updates", fontSize = 12.sp) }
-            }
-        }
-
-        // manual IPs, port probe and app log: the usual three dots at the top right
-        MoreMenu(vm, Modifier.align(Alignment.TopEnd).offset(x = 12.dp, y = 4.dp))
-
-        Text(
-            "v${vm.appVersion}",
-            fontSize = 11.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = 16.dp),
-        )
-
-        if (canNext) {
-            Button(
-                onClick = { vm.onNext() },
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
-            ) { Text("NEXT") }
-        }
-    }
-
-    if (vm.confirmReset) {
-        AlertDialog(
-            onDismissRequest = { vm.confirmReset = false },
-            title = { Text("Reset head unit?") },
-            text = {
-                Text(
-                    "Looks for the car again, then sends a reset command through the car gateway (no SSH needed). " +
-                        "The head unit restarts, which takes a minute or two. The app keeps checking until SSH opens."
-                )
-            },
-            confirmButton = { TextButton(onClick = { vm.resetHeadUnit() }) { Text("Reset") } },
-            dismissButton = { TextButton(onClick = { vm.confirmReset = false }) { Text("Cancel") } },
-        )
-    }
-
-    if (vm.manualDialog) ManualDialog(vm)
-    if (vm.probeDialog) ProbeDialog(vm)
 }
 
 /**
@@ -330,7 +219,7 @@ private fun DetectScreen(vm: MainViewModel) {
  * open connections and closes them again. The result is shown here and written to the app log (Probe).
  */
 @Composable
-private fun ProbeDialog(vm: MainViewModel) {
+internal fun ProbeDialog(vm: MainViewModel) {
     AlertDialog(
         onDismissRequest = { if (!vm.probeBusy) vm.closeProbe() },
         title = { Text("Port probe", fontSize = 18.sp) },
@@ -366,7 +255,7 @@ private fun ProbeDialog(vm: MainViewModel) {
 
 /** Is there a newer version of this app on GitHub? One tap downloads it and hands it to Android's installer. */
 @Composable
-private fun UpdateBanner(vm: MainViewModel) {
+internal fun UpdateBanner(vm: MainViewModel) {
     val offer = vm.updateOffer
     val installNote = vm.installMessage
     val msg = installNote ?: vm.updateMessage
@@ -420,45 +309,12 @@ private fun UpdateBanner(vm: MainViewModel) {
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 6.dp),
         )
-        Button(onClick = { vm.startUpdate() }, modifier = Modifier.padding(top = 4.dp)) { Text("UPDATE") }
+        Button(onClick = { vm.startUpdate() }, modifier = Modifier.padding(top = 4.dp)) { Text("Update App") }
     }
 }
 
 @Composable
-private fun InfoTable(st: DetectState, vm: MainViewModel, modifier: Modifier) {
-    Column(modifier.border(1.dp, Color.Gray, RoundedCornerShape(6.dp)).padding(12.dp)) {
-        InfoRow("ZGW", st.zgw ?: if (st.viaCarWifi) "not needed (car WiFi)" else "not found")
-        InfoRow("Head unit", st.hu ?: "not found")
-        InfoRow("VIN", st.vin ?: "unknown")
-        Row(
-            Modifier.fillMaxWidth().padding(top = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("SSH Open", fontSize = 14.sp, modifier = Modifier.weight(1f))
-            if (!st.ssh && st.zgw != null && st.vin != null) {
-                OutlinedButton(
-                    onClick = { vm.confirmReset = true },
-                    enabled = !vm.resetting && !vm.busy,
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                    modifier = Modifier.height(32.dp),
-                ) { Text(if (vm.resetting) "Resetting…" else "Reset head unit", fontSize = 12.sp) }
-                Spacer(Modifier.width(10.dp))
-            }
-            Box(Modifier.size(16.dp).background(if (st.ssh) Green else Red, CircleShape))
-        }
-    }
-}
-
-@Composable
-private fun InfoRow(label: String, value: String) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
-        Text(label, fontSize = 14.sp, modifier = Modifier.weight(1f))
-        Text(value, fontSize = 14.sp, fontFamily = FontFamily.Monospace)
-    }
-}
-
-@Composable
-private fun ManualDialog(vm: MainViewModel) {
+internal fun ManualDialog(vm: MainViewModel) {
     var zgw by remember { mutableStateOf(vm.detect.zgw ?: "") }
     var hu by remember { mutableStateOf(vm.detect.hu ?: "") }
     AlertDialog(
@@ -518,6 +374,15 @@ private fun OptionsScreen(vm: MainViewModel) {
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = if (used > EnvCheck.MAX_SETTINGS) Red else Color.Unspecified,
+                        )
+                        // is the list of settings itself up to date? checked again every time this page opens
+                        Text(
+                            vm.syncMessage,
+                            fontSize = 11.sp,
+                            color = if (vm.syncOk) Green else MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = if (vm.syncOk) FontWeight.SemiBold else FontWeight.Normal,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(top = 4.dp),
                         )
                         Spacer(Modifier.height(8.dp))
                         CompactField(vm.search, { vm.search = it }, "Search settings", Modifier.fillMaxWidth())

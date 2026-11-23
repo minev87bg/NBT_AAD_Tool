@@ -65,8 +65,7 @@ import com.nbtaad.editor.install.UnitStatus
 
 @Composable
 fun HubScreen(vm: MainViewModel) {
-    BackHandler { vm.backToDetect() }
-
+  Box(Modifier.fillMaxSize()) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -83,17 +82,15 @@ fun HubScreen(vm: MainViewModel) {
         Spacer(Modifier.height(28.dp))
         HeroTile(
             title = "Prepare headunit",
-            subtitle = if (vm.canPrepareHeadUnit) {
-                if (vm.detect.ssh) "SSH is open" else "Open its SSH"
-            } else "Connect the car's Ethernet (ENET) to use this",
+            subtitle = if (vm.detect.ssh) "SSH is open" else "Open its SSH",
             info = "Gets the head unit ready for Android Auto to work without problems. Many of the issues people " +
                 "report trace back to a head unit whose coding leaves SSH closed or restricted.\n\nToday: opening SSH, " +
                 "which needs the car's own Ethernet gateway (ZGW), reached over an ENET cable, not the car's Android " +
-                "Auto WiFi. Checking and changing the head unit's own coding is coming next.",
+                "Auto WiFi; pressing CHECK CODINGS on that page looks for the car itself, cable or not. Checking and " +
+                "changing the head unit's own coding is coming next.",
             icon = HubIcon.BINARY,
             colors = listOf(Color(0xFF8FD8F2), Color(0xFF3DAEDE)),
             ink = Color(0xFF07314A),
-            enabled = vm.canPrepareHeadUnit,
         ) { vm.choosePrepare() }
         Spacer(Modifier.height(12.dp))
         HeroTile(
@@ -137,10 +134,27 @@ fun HubScreen(vm: MainViewModel) {
         ) { vm.chooseExperimental() }
         Spacer(Modifier.height(8.dp))
         TextButton(onClick = { vm.showLog = true }) { Text("app log", fontSize = 12.sp) }
+        UpdateBanner(vm)
         Spacer(Modifier.height(16.dp))
     }
 
+    Column(
+        Modifier.align(Alignment.TopEnd).padding(top = 4.dp, end = 12.dp),
+        horizontalAlignment = Alignment.End,
+    ) {
+        MoreMenu(vm, Modifier)
+        Text(
+            "v${vm.appVersion}",
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 2.dp, end = 2.dp),
+        )
+    }
+  }
+
     if (vm.askDraft) DraftDialog(vm)
+    if (vm.manualDialog) ManualDialog(vm)
+    if (vm.probeDialog) ProbeDialog(vm)
 }
 
 private val HeroText = Color(0xFF0B2A14)

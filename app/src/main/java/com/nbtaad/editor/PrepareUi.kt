@@ -70,11 +70,10 @@ internal fun PrepareTheme(content: @Composable () -> Unit) {
 
 /**
  * "Prepare headunit": checking (and fixing) the handful of coding bits Android Auto needs, and opening the head
- * unit's SSH over the car's Ethernet gateway (ZGW) so Sq00ky's own project can be installed. CHECK CODINGS does
- * both at once - re-detecting the car and reading the coding bits - since reaching this page already means the
- * car was found once; there is no separate "check again" for just the detection half any more. Signing tools
- * (the two coding keys WRITE CODING and REVERT TO BACKUP need) live on their own page, reached only when they are
- * still needed.
+ * unit's SSH over the car's Ethernet gateway (ZGW) so Sq00ky's own project can be installed. This page is reachable
+ * straight from the Hub, car or no car yet: CHECK CODINGS does both at once - detecting the car (or re-detecting
+ * it) and reading the coding bits - so there is no separate "detect" step before it. Signing tools (the two coding
+ * keys WRITE CODING and REVERT TO BACKUP need) live on their own page, reached only when they are still needed.
  */
 @Composable
 fun PrepareScreen(vm: MainViewModel) {
