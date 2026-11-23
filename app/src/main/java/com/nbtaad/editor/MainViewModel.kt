@@ -63,7 +63,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.coroutines.coroutineContext
 
-enum class Screen { DETECT, HUB, OPTIONS, INSTALL, EXPERIMENTAL, CONTRIBUTE, WIZARD, TILE, MENULOOK, ADDONS, PREPARE }
+enum class Screen { DETECT, HUB, OPTIONS, INSTALL, EXPERIMENTAL, CONTRIBUTE, WIZARD, TILE, MENULOOK, ADDONS, PREPARE, SIGNING_TOOLS }
 enum class UpdatePhase { IDLE, CHECKING, CURRENT, AVAILABLE, DOWNLOADING, FAILED }
 enum class SaveStatus { RUNNING, OK, FAIL }
 enum class LineKind { INFO, OK, ERROR }
@@ -872,40 +872,36 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     val canPrepareHeadUnit: Boolean get() = detect.zgw != null || (detect.hu != null && detect.ssh)
 
-    /** CHECK AGAIN on the Prepare headunit page: looks for the car again, keeping what is shown until new results arrive. */
-    fun recheckHeadUnit() {
-        if (busy) return
-        busy = true
-        feedbackError = false
+    /** What "Check codings" on the Prepare headunit page last found; null before it has run once. */
+    var codingResults by mutableStateOf<List<com.nbtaad.editor.net.CodingResult>?>(null)
+    var codingChecking by mutableStateOf(false)
+    /** Set when the (i) next to the CODING PASSED / CODINGS NOT SET line is tapped. */
+    var showCodingDetail by mutableStateOf(false)
+    /** Set when SHOW LOG (the last write/revert) is tapped. */
+    var showCodingWriteLog by mutableStateOf(false)
+
+    /** True once every coding bit CHECK CODINGS looked at reads back SET; null results count as not passed. */
+    val codingAllSet: Boolean
+        get() = codingResults?.isNotEmpty() == true && codingResults!!.all { it.status == com.nbtaad.editor.net.CodingStatus.SET }
+
+    /**
+     * "Check codings": used to just read the AA coding bits; reaching this page already means the
+     * car's gateway (ZGW) was found, so CHECK AGAIN (a separate, standalone refresh) was redundant
+     * here - this now also does what that button did first (re-detect the car, refreshing SSH/ZGW/
+     * VIN), then reads the handful of individual coding bits Android Auto needs straight from the
+     * head unit over that gateway. A plain read either way - no SecurityAccess, no key, nothing
+     * written to the car or its Vehicle Order.
+     */
+    fun checkCodings() {
+        if (codingChecking) return
+        codingChecking = true
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 NetworkBinder.bindToLocalNetwork(ctx)
                 val r = detectCar { feedback = it }
                 applyResult(r)
-            } catch (e: Exception) {
-                AppLog.e("Detect", "Checking the head unit again failed", e)
-            } finally {
-                busy = false
-            }
-        }
-    }
-
-    /** What "Check codings" on the Prepare headunit page last found; null before it has run once. */
-    var codingResults by mutableStateOf<List<com.nbtaad.editor.net.CodingResult>?>(null)
-    var codingChecking by mutableStateOf(false)
-
-    /**
-     * "Check codings": reads the handful of individual coding bits Android Auto needs straight from
-     * the head unit over the car's Ethernet gateway (ZGW) and reports which are already set. A plain
-     * read — no SecurityAccess, no key, nothing written to the car or its Vehicle Order.
-     */
-    fun checkCodings() {
-        val ip = detect.zgw ?: return
-        if (codingChecking) return
-        codingChecking = true
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                codingResults = com.nbtaad.editor.net.CodingCheck.checkAll(ip)
+                val ip = detect.zgw
+                codingResults = if (ip != null) com.nbtaad.editor.net.CodingCheck.checkAll(ip) else null
             } catch (e: Exception) {
                 AppLog.e("Coding", "Checking the coding bits failed", e)
             } finally {
@@ -1025,6 +1021,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         codingWriteLog = null
     }
 
+    /** Back from the Signing tools page to Prepare headunit. */
+    fun closeSigningTools() {
+        screen = Screen.PREPARE
+    }
+
     /** Reads a fresh backup of the car's current coding. Mandatory before a write; also the revert target afterward. */
     fun readCodingBackup() {
         val ip = detect.zgw ?: return
@@ -1042,15 +1043,34 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** REMOVE BACKUP (the ❌ next to the backup line): discards it so READ BACKUP can fetch a fresh one - e.g. once a write has moved on past it. */
+    fun removeCodingBackup() {
+        codingBackup = null
+    }
+
+    /** WRITE CODING tapped: the keys have to be loaded first, since writing can't be signed without them. */
+    fun onWriteCodingTapped() {
+        if (!hasNcdKey || !hasL3Key) screen = Screen.SIGNING_TOOLS else confirmWriteCoding = true
+    }
+
+    /** REVERT TO BACKUP tapped: same key check as WRITE CODING, since reverting signs the backup back through the same path. */
+    fun onRevertTapped() {
+        if (!hasNcdKey || !hasL3Key) screen = Screen.SIGNING_TOOLS else revertCoding()
+    }
+
     /** The AA coding bits CHECK CODINGS found not set, paired with the value they should be — what WRITE CODING would send. */
     val codingFixes: List<Pair<com.nbtaad.editor.net.CodingBit, Int>>
         get() = (codingResults ?: emptyList())
             .filter { it.status == com.nbtaad.editor.net.CodingStatus.NOT_SET }
             .mapNotNull { r -> r.bit.expectedOn?.let { r.bit to it } }
 
-    /** Whether everything WRITE CODING needs is in hand: both keys, a backup, a known VIN, and something to change. */
+    /**
+     * Whether WRITE CODING's button is enabled: a backup, a known VIN, and something to change. The keys are
+     * checked separately when it's tapped (see [onWriteCodingTapped]) rather than gating `enabled` here, so a
+     * tap with no keys loaded can still navigate to Signing tools instead of silently doing nothing.
+     */
     val canWriteCoding: Boolean
-        get() = hasNcdKey && hasL3Key && codingBackup?.mem != null && detect.vin != null && codingFixes.isNotEmpty() && !codingBusy
+        get() = codingBackup?.mem != null && detect.vin != null && codingFixes.isNotEmpty() && !codingBusy
 
     /** WRITE CODING, after the person has confirmed: re-signs the backup with the fixes applied and writes it through. */
     fun applyAaCoding() {
@@ -1070,12 +1090,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 for (s in outcome.steps) {
                     if (s.ok) AppLog.i("Coding", "Write step - ${s.name}: ${s.detail}") else AppLog.w("Coding", "Write step - ${s.name}: ${s.detail}")
                 }
-                feedback = if (outcome.success) {
-                    "Wrote ${fixes.size} coding bit(s). The head unit is resetting - press CHECK AGAIN once it's back, then CHECK CODINGS to confirm."
+                if (outcome.success) {
+                    // That backup predates this write, so it no longer matches the car - clear it so REVERT TO
+                    // BACKUP can't undo this write by accident, and READ BACKUP fetches a fresh one when wanted.
+                    codingBackup = null
+                    feedback = "Wrote ${fixes.size} coding bit(s). Waiting for the head unit to reset, then re-checking…"
+                    feedbackError = false
+                    delay(6000)
+                    codingResults = try {
+                        com.nbtaad.editor.net.CodingCheck.checkAll(ip)
+                    } catch (e: Exception) {
+                        AppLog.w("Coding", "Auto re-check after the write failed: ${e.message}")
+                        null
+                    }
+                    feedback = if (codingAllSet) {
+                        "Wrote ${fixes.size} coding bit(s) - confirmed set."
+                    } else {
+                        "Wrote ${fixes.size} coding bit(s), but the re-check doesn't show them all set yet - give the head unit a moment and tap CHECK CODINGS."
+                    }
+                    feedbackError = !codingAllSet
                 } else {
-                    "The write stopped partway (see the log below) - nothing further was sent."
+                    feedback = "The write stopped partway (see the log) - nothing further was sent."
+                    feedbackError = true
                 }
-                feedbackError = !outcome.success
             } catch (e: Exception) {
                 AppLog.e("Coding", "Writing coding failed", e)
                 feedback = "Writing coding failed: ${friendlyError(e)}"
@@ -1102,8 +1139,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 for (s in outcome.steps) {
                     if (s.ok) AppLog.i("Coding", "Revert step - ${s.name}: ${s.detail}") else AppLog.w("Coding", "Revert step - ${s.name}: ${s.detail}")
                 }
-                feedback = if (outcome.success) "Reverted to the backup." else "The revert stopped partway (see the log below)."
-                feedbackError = !outcome.success
+                if (outcome.success) {
+                    // Unlike a write, the backup is still accurate afterward - it's exactly what was just written back.
+                    feedback = "Reverted to the backup. Waiting for the head unit to reset, then re-checking…"
+                    feedbackError = false
+                    delay(6000)
+                    codingResults = try {
+                        com.nbtaad.editor.net.CodingCheck.checkAll(ip)
+                    } catch (e: Exception) {
+                        AppLog.w("Coding", "Auto re-check after the revert failed: ${e.message}")
+                        null
+                    }
+                    feedback = "Reverted to the backup."
+                    feedbackError = false
+                } else {
+                    feedback = "The revert stopped partway (see the log)."
+                    feedbackError = true
+                }
             } catch (e: Exception) {
                 AppLog.e("Coding", "Reverting coding failed", e)
                 feedback = "Revert failed: ${friendlyError(e)}"

@@ -123,6 +123,7 @@ fun App(vm: MainViewModel) {
                 Screen.MENULOOK -> AddOnsTheme { MenuLookScreen(vm) }
                 Screen.ADDONS -> AddOnsTheme { AddOnsScreen(vm) }
                 Screen.PREPARE -> PrepareTheme { PrepareScreen(vm) }
+                Screen.SIGNING_TOOLS -> PrepareTheme { SigningToolsScreen(vm) }
             }
             ThemeToggle(vm, Modifier.align(Alignment.TopStart).padding(4.dp))
         }

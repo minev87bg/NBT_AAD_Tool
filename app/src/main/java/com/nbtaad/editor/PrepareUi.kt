@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,10 +12,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -24,13 +28,16 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -61,9 +68,12 @@ internal fun PrepareTheme(content: @Composable () -> Unit) {
 }
 
 /**
- * "Prepare headunit": today, opening the head unit's SSH over the car's Ethernet gateway (ZGW); later, checking and
- * changing its own coding as well. Opening SSH is not done by this app itself: it hands off to the project's own
- * self-service tool (the one Sq00ky's own install guide points to), then checks whether SSH came up.
+ * "Prepare headunit": checking (and fixing) the handful of coding bits Android Auto needs, and opening the head
+ * unit's SSH over the car's Ethernet gateway (ZGW) so Sq00ky's own project can be installed. CHECK CODINGS does
+ * both at once - re-detecting the car and reading the coding bits - since reaching this page already means the
+ * car was found once; there is no separate "check again" for just the detection half any more. Signing tools
+ * (the two coding keys WRITE CODING and REVERT TO BACKUP need) live on their own page, reached only when they are
+ * still needed.
  */
 @Composable
 fun PrepareScreen(vm: MainViewModel) {
@@ -76,16 +86,45 @@ fun PrepareScreen(vm: MainViewModel) {
         TextButton(onClick = { vm.backToHub() }) { Text("‹ WHAT DO YOU WANT TO DO?", fontSize = 12.sp) }
         Text("Prepare headunit", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
         Text(
-            "Gets the head unit ready for Android Auto to work without problems. Many of the issues people report " +
-                "trace back to a head unit whose coding leaves SSH closed or restricted.",
+            "A few of this head unit's own coding bits are essential for Android Auto to work at all, SSH " +
+                "included. Follow the page below: check the codings, fix whatever isn't set, and open SSH if " +
+                "it's still closed.",
             fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 4.dp),
         )
 
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(16.dp))
+        OutlinedButton(
+            onClick = { vm.checkCodings() },
+            enabled = !vm.codingChecking,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text(if (vm.codingChecking) "CHECKING…" else "CHECK CODINGS") }
+        if (vm.codingChecking) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
+
+        val results = vm.codingResults
+        if (results == null) {
+            if (!vm.codingChecking) {
+                Text("Not checked yet.", fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 8.dp))
+            }
+        } else {
+            Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (vm.codingAllSet) "CODING PASSED" else "CODINGS NOT SET",
+                    fontSize = 20.sp, fontWeight = FontWeight.Bold,
+                    color = if (vm.codingAllSet) Green else Red,
+                )
+                Spacer(Modifier.width(8.dp))
+                InfoBadge(onClick = { vm.showCodingDetail = true })
+            }
+        }
+        if (vm.feedback.isNotEmpty()) {
+            Text(vm.feedback, fontSize = 11.sp, color = if (vm.feedbackError) Red else muted, modifier = Modifier.padding(top = 6.dp))
+        }
+
+        Spacer(Modifier.height(18.dp))
         StatusRow("Car's Ethernet gateway (ZGW)", vm.detect.zgw, found = vm.detect.zgw != null)
         StatusRow("Head unit's SSH", if (vm.detect.ssh) "Open" else null, found = vm.detect.ssh)
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
         when {
             vm.detect.ssh -> {
                 Text("SSH is open. The head unit is ready for Android Auto.", fontSize = 13.sp, color = Green)
@@ -93,7 +132,7 @@ fun PrepareScreen(vm: MainViewModel) {
             vm.detect.zgw != null -> {
                 Text(
                     "OPEN SSH takes you to the project's self-service SSH tool in your browser. It opens SSH on the " +
-                        "head unit until its next restart. Come back here and press CHECK AGAIN.",
+                        "head unit until its next restart. Come back here and press CHECK CODINGS.",
                     fontSize = 12.sp, color = muted,
                 )
                 Button(
@@ -110,56 +149,50 @@ fun PrepareScreen(vm: MainViewModel) {
             }
         }
 
-        Spacer(Modifier.height(10.dp))
-        OutlinedButton(
-            onClick = { vm.recheckHeadUnit() },
-            enabled = !vm.busy,
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text(if (vm.busy) "CHECKING…" else "CHECK AGAIN") }
-        if (vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
-        if (vm.feedback.isNotEmpty()) {
-            Text(vm.feedback, fontSize = 11.sp, color = if (vm.feedbackError) Red else muted, modifier = Modifier.padding(top = 6.dp))
+        if (!(vm.hasNcdKey && vm.hasL3Key)) {
+            Spacer(Modifier.height(16.dp))
+            OutlinedButton(
+                onClick = { vm.screen = Screen.SIGNING_TOOLS },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("SIGNING TOOLS NOT SET UP — TAP TO SET UP") }
         }
 
-        Spacer(Modifier.height(24.dp))
-        Text("What Android Auto needs coded", fontSize = 15.sp, fontWeight = FontWeight.Medium)
-        Text(
-            "Sq00ky's own project lists these as the head unit coding Android Auto needs, WiFi Direct included; " +
-                "without them the car can refuse the phone's link outright. This reads them straight from the head " +
-                "unit over the same Ethernet gateway — nothing is written, and the Vehicle Order is never touched.",
-            fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
-        )
-        OutlinedButton(
-            onClick = { vm.checkCodings() },
-            enabled = vm.detect.zgw != null && !vm.codingChecking,
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text(if (vm.codingChecking) "CHECKING CODINGS…" else "CHECK CODINGS") }
-        if (vm.codingChecking) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
-
-        val results = vm.codingResults
-        if (results == null) {
-            if (!vm.codingChecking) {
-                Text(
-                    "Not checked yet.",
-                    fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 8.dp),
-                )
-            }
-        } else {
-            for ((group, bits) in results.groupBy { it.bit.group }) {
-                Column(Modifier.padding(top = 14.dp)) {
-                    Text(group, fontSize = 11.sp, color = muted, fontWeight = FontWeight.Medium)
-                    for (r in bits) {
-                        CodingRow(r)
-                    }
-                }
-            }
-        }
-        Spacer(Modifier.height(28.dp))
-        CodingKeysSection(vm)
-
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(20.dp))
         WriteCodingSection(vm)
         Spacer(Modifier.height(32.dp))
+    }
+
+    if (vm.showCodingDetail) {
+        AlertDialog(
+            onDismissRequest = { vm.showCodingDetail = false },
+            title = { Text("Coding check") },
+            text = {
+                Column(Modifier.heightIn(max = 340.dp).verticalScroll(rememberScrollState())) {
+                    val res = vm.codingResults ?: emptyList()
+                    if (res.isEmpty()) {
+                        Text("Nothing read yet.")
+                    } else {
+                        for ((group, bits) in res.groupBy { it.bit.group }) {
+                            Text(
+                                group, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 10.dp),
+                            )
+                            for (r in bits) CodingRow(r)
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { vm.showCodingDetail = false }) { Text("CLOSE") } },
+        )
+    }
+
+    if (vm.showCodingWriteLog) {
+        AlertDialog(
+            onDismissRequest = { vm.showCodingWriteLog = false },
+            title = { Text("Write log") },
+            text = { WriteLogConsole(vm.codingWriteLog ?: emptyList(), maxHeight = 340.dp) },
+            confirmButton = { TextButton(onClick = { vm.showCodingWriteLog = false }) { Text("CLOSE") } },
+        )
     }
 
     if (vm.confirmWriteCoding) {
@@ -185,8 +218,15 @@ fun PrepareScreen(vm: MainViewModel) {
     }
 }
 
+/**
+ * "Signing tools": loading (or importing) the two coding keys WRITE CODING and REVERT TO BACKUP need to sign
+ * what they send. Its own page, off Prepare headunit, since once both keys are loaded there is nothing left to
+ * show here - Prepare headunit only links to this page while a key is still missing, and tapping WRITE CODING or
+ * REVERT TO BACKUP there without both keys loaded comes straight here instead of just sitting disabled.
+ */
 @Composable
-private fun CodingKeysSection(vm: MainViewModel) {
+fun SigningToolsScreen(vm: MainViewModel) {
+    BackHandler { vm.closeSigningTools() }
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val ncdPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u ->
         u?.let { vm.importCodingKey(it, ncd = true) }
@@ -197,25 +237,53 @@ private fun CodingKeysSection(vm: MainViewModel) {
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { u ->
         u?.let { vm.recoverCodingKeysFromFolder(it) }
     }
-    Text("Coding keys", fontSize = 15.sp, fontWeight = FontWeight.Medium)
-    Text(
-        "Writing a coding bit needs two small keys recovered once from your own PSdZData. Tap LOAD SIGNING " +
-            "TOOLS for what that means and where it has to come from.",
-        fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
-    )
-    Button(
-        onClick = { vm.showRecoveryInfo = true },
-        enabled = !vm.recoveringKeys,
-        modifier = Modifier.fillMaxWidth(),
-    ) { Text(if (vm.recoveringKeys) "LOADING…" else "LOAD SIGNING TOOLS…") }
-    if (vm.recoveringKeys) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
-    if (vm.recoveryFeedback.isNotEmpty()) {
+
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+        Spacer(Modifier.height(52.dp))
+        TextButton(onClick = { vm.closeSigningTools() }) { Text("‹ PREPARE HEADUNIT", fontSize = 12.sp) }
+        Text("Signing tools", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
         Text(
-            vm.recoveryFeedback, fontSize = 11.sp,
-            color = if (vm.recoveryFeedbackError) Red else muted,
-            modifier = Modifier.padding(top = 6.dp),
+            "Writing a coding bit needs two small keys recovered once from your own PSdZData. Tap LOAD SIGNING " +
+                "TOOLS for what that means and where it has to come from.",
+            fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
         )
+        Button(
+            onClick = { vm.showRecoveryInfo = true },
+            enabled = !vm.recoveringKeys,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text(if (vm.recoveringKeys) "LOADING…" else "LOAD SIGNING TOOLS…") }
+        if (vm.recoveringKeys) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
+        if (vm.recoveryFeedback.isNotEmpty()) {
+            Text(
+                vm.recoveryFeedback, fontSize = 11.sp,
+                color = if (vm.recoveryFeedbackError) Red else muted,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+        }
+
+        Spacer(Modifier.height(14.dp))
+        StatusRow("ncd_key.json (signs the coding)", if (vm.hasNcdKey) "Imported" else null, found = vm.hasNcdKey)
+        Spacer(Modifier.height(8.dp))
+        StatusRow("l3_key.json (unlocks writing)", if (vm.hasL3Key) "Imported" else null, found = vm.hasL3Key)
+        Text(
+            "Already have ncd_key.json / l3_key.json from a PC run instead? Import them directly:",
+            fontSize = 11.sp, color = muted, modifier = Modifier.padding(top = 14.dp, bottom = 4.dp),
+        )
+        OutlinedButton(
+            onClick = { ncdPicker.launch(arrayOf("application/json")) },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("IMPORT ncd_key.json…") }
+        Spacer(Modifier.height(6.dp))
+        OutlinedButton(
+            onClick = { l3Picker.launch(arrayOf("application/json")) },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("IMPORT l3_key.json…") }
+        if (vm.hasNcdKey || vm.hasL3Key) {
+            TextButton(onClick = { vm.forgetCodingKeys() }, modifier = Modifier.padding(top = 4.dp)) { Text("FORGET BOTH KEYS") }
+        }
+        Spacer(Modifier.height(32.dp))
     }
+
     if (vm.showRecoveryInfo) {
         AlertDialog(
             onDismissRequest = { vm.showRecoveryInfo = false },
@@ -257,26 +325,6 @@ private fun CodingKeysSection(vm: MainViewModel) {
             dismissButton = { TextButton(onClick = { vm.showRecoveryInfo = false }) { Text("Cancel") } },
         )
     }
-    Spacer(Modifier.height(10.dp))
-    StatusRow("ncd_key.json (signs the coding)", if (vm.hasNcdKey) "Imported" else null, found = vm.hasNcdKey)
-    Spacer(Modifier.height(8.dp))
-    StatusRow("l3_key.json (unlocks writing)", if (vm.hasL3Key) "Imported" else null, found = vm.hasL3Key)
-    Text(
-        "Already have ncd_key.json / l3_key.json from a PC run instead? Import them directly:",
-        fontSize = 11.sp, color = muted, modifier = Modifier.padding(top = 10.dp, bottom = 4.dp),
-    )
-    OutlinedButton(
-        onClick = { ncdPicker.launch(arrayOf("application/json")) },
-        modifier = Modifier.fillMaxWidth(),
-    ) { Text("IMPORT ncd_key.json…") }
-    Spacer(Modifier.height(6.dp))
-    OutlinedButton(
-        onClick = { l3Picker.launch(arrayOf("application/json")) },
-        modifier = Modifier.fillMaxWidth(),
-    ) { Text("IMPORT l3_key.json…") }
-    if (vm.hasNcdKey || vm.hasL3Key) {
-        TextButton(onClick = { vm.forgetCodingKeys() }, modifier = Modifier.padding(top = 4.dp)) { Text("FORGET BOTH KEYS") }
-    }
 }
 
 @Composable
@@ -284,9 +332,8 @@ private fun WriteCodingSection(vm: MainViewModel) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     Text("Write coding", fontSize = 15.sp, fontWeight = FontWeight.Medium)
     Text(
-        "Reads a fresh backup, then — only for the bits CHECK CODINGS found not set, and only with both keys " +
-            "imported — re-signs and writes them. Never touches the Vehicle Order. The backup can always be written " +
-            "back afterward.",
+        "Reads a fresh backup, then — only for the bits CHECK CODINGS found not set — re-signs and writes " +
+            "them. Never touches the Vehicle Order. The backup can always be written back afterward.",
         fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
     )
     OutlinedButton(
@@ -298,11 +345,16 @@ private fun WriteCodingSection(vm: MainViewModel) {
 
     val backup = vm.codingBackup
     if (backup != null) {
-        Text(
-            if (backup.ok) "Backup read: ${backup.vin}, ${backup.mem?.size ?: 0} coding bytes."
-            else "Backup read failed (${backup.steps.lastOrNull { !it.ok }?.detail ?: "see log"}).",
-            fontSize = 12.sp, color = if (backup.ok) Green else Red, modifier = Modifier.padding(top = 8.dp),
-        )
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (backup.ok) "Backup read: ${backup.vin}, ${backup.mem?.size ?: 0} coding bytes."
+                else "Backup read failed (${backup.steps.lastOrNull { !it.ok }?.detail ?: "see log"}).",
+                fontSize = 12.sp, color = if (backup.ok) Green else Red, modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = { vm.removeCodingBackup() }, modifier = Modifier.padding(start = 2.dp)) {
+                Text("✕", color = Red, fontWeight = FontWeight.Bold)
+            }
+        }
     }
 
     val fixes = vm.codingFixes
@@ -319,27 +371,19 @@ private fun WriteCodingSection(vm: MainViewModel) {
             }
         }
         Button(
-            onClick = { vm.confirmWriteCoding = true },
+            onClick = { vm.onWriteCodingTapped() },
             enabled = vm.canWriteCoding,
             modifier = Modifier.padding(top = 10.dp).fillMaxWidth(),
         ) { Text("WRITE CODING…") }
         OutlinedButton(
-            onClick = { vm.revertCoding() },
-            enabled = vm.hasNcdKey && vm.hasL3Key && vm.codingBackup?.mem != null && !vm.codingBusy,
+            onClick = { vm.onRevertTapped() },
+            enabled = vm.codingBackup?.mem != null && !vm.codingBusy,
             modifier = Modifier.padding(top = 8.dp).fillMaxWidth(),
         ) { Text("REVERT TO BACKUP") }
     }
 
-    vm.codingWriteLog?.let { log ->
-        Column(Modifier.padding(top = 12.dp)) {
-            Text("Last write:", fontSize = 12.sp, color = muted)
-            for (step in log) {
-                Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(7.dp).clip(CircleShape).background(if (step.ok) Green else Red))
-                    Text("${step.name}: ${step.detail}", fontSize = 12.sp, modifier = Modifier.padding(start = 8.dp))
-                }
-            }
-        }
+    if (vm.codingWriteLog != null) {
+        TextButton(onClick = { vm.showCodingWriteLog = true }, modifier = Modifier.padding(top = 6.dp)) { Text("SHOW LOG") }
     }
 
     val securityAccessFailed = vm.codingWriteLog?.any { !it.ok && it.name.startsWith("SecurityAccess") } == true
@@ -365,6 +409,48 @@ private fun WriteCodingSection(vm: MainViewModel) {
                     Box(Modifier.size(7.dp).clip(CircleShape).background(if (step.ok) Green else Red))
                     Text("${step.name}: ${step.detail}", fontSize = 12.sp, modifier = Modifier.padding(start = 8.dp))
                 }
+            }
+        }
+    }
+}
+
+/** The small "(i)" next to CODING PASSED / CODINGS NOT SET: opens the per-bit breakdown. */
+@Composable
+private fun InfoBadge(onClick: () -> Unit) {
+    Box(
+        Modifier.size(22.dp).clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text("i", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+    }
+}
+
+/** The write/revert log behind SHOW LOG, as a small dark console - the same idea as the install log's. */
+@Composable
+private fun WriteLogConsole(log: List<com.nbtaad.editor.net.WriteStep>, maxHeight: Dp) {
+    val scroll = rememberScrollState()
+    LaunchedEffect(log.size) { scroll.animateScrollTo(scroll.maxValue) }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(max = maxHeight)
+            .background(Color(0xFF0E120E), RoundedCornerShape(6.dp))
+            .verticalScroll(scroll)
+            .padding(8.dp),
+    ) {
+        if (log.isEmpty()) {
+            Text("Nothing written yet.", fontSize = 12.sp, color = Color(0xFFD0D4D0))
+        }
+        for (step in log) {
+            Row(Modifier.fillMaxWidth().padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(7.dp).clip(CircleShape).background(if (step.ok) Color(0xFF7CD68A) else Color(0xFFFF8A80)))
+                Text(
+                    "${step.name}: ${step.detail}",
+                    fontSize = 11.sp, lineHeight = 14.sp, fontFamily = FontFamily.Monospace,
+                    color = Color(0xFFD0D4D0), modifier = Modifier.padding(start = 8.dp),
+                )
             }
         }
     }
