@@ -60,6 +60,10 @@ object MenuLookHeadUnit {
         return null
     }
 
+    /** The real picture for one place, as read from the head unit: [raw] untouched (for saving and looking at
+     *  closely), [cleaned] with its icon erased (for drawing a chosen one over instead). */
+    class FactoryTile(val raw: ByteArray, val cleaned: Pixels)
+
     /**
      * The real "Main-menu tile" pictures for [brand] (not the small plain icon places), read once from the head
      * unit, with the Baidu CarLife icon they are drawn with erased so a chosen icon can be drawn over a clean
@@ -70,24 +74,24 @@ object MenuLookHeadUnit {
      * or whose icon cannot be told apart from its background at all, is simply left out: the icon is then made the
      * old way, on its own, for that place only.
      */
-    fun fetchFactoryTiles(host: String, brand: String): Map<String, Pixels> {
-        val read = LinkedHashMap<String, Pixels>()
+    fun fetchFactoryTiles(host: String, brand: String): Map<String, FactoryTile> {
+        val read = LinkedHashMap<String, Pair<ByteArray, Pixels>>()
         SshSession(host).use { ssh ->
             for (slot in MenuLook.slots(brand)) {
                 if (!slot.what.startsWith("Main-menu tile")) continue
                 val bytes = fetchOriginal(ssh, slot.rel) ?: continue
                 try {
                     val px = PictureFiles.decode(bytes)
-                    if (px.width == slot.width && px.height == slot.height) read[slot.rel] = px
+                    if (px.width == slot.width && px.height == slot.height) read[slot.rel] = bytes to px
                 } catch (_: Exception) {
                     // not a usable PNG: left out, the icon is made the old way for this one place
                 }
             }
         }
-        val out = LinkedHashMap<String, Pixels>()
-        for (group in read.entries.groupBy { it.value.width to it.value.height }.values) {
-            val cleaned = PictureMaker.withoutSubjects(group.map { it.value })
-            group.forEachIndexed { i, e -> out[e.key] = cleaned[i] }
+        val out = LinkedHashMap<String, FactoryTile>()
+        for (group in read.entries.groupBy { it.value.second.width to it.value.second.height }.values) {
+            val cleaned = PictureMaker.withoutSubjects(group.map { it.value.second })
+            group.forEachIndexed { i, e -> out[e.key] = FactoryTile(e.value.first, cleaned[i]) }
         }
         return out
     }

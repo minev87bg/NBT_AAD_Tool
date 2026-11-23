@@ -81,10 +81,11 @@ class MenuLookController(
     var showLog by mutableStateOf(false)
 
     // the head unit's own tile backgrounds, read once per brand so a chosen icon is drawn over them, not over empty space
-    var factoryTiles by mutableStateOf<Map<String, Pixels>>(emptyMap()); private set
+    var factoryTiles by mutableStateOf<Map<String, MenuLookHeadUnit.FactoryTile>>(emptyMap()); private set
     private var factoryBrand: String? = null
     var factoryBusy by mutableStateOf(false); private set
     var factoryMessage by mutableStateOf(""); private set
+    var factorySaveNote by mutableStateOf(""); private set
 
     val working: Boolean get() = busy != null
 
@@ -166,6 +167,22 @@ class MenuLookController(
                 factoryMessage = "The head unit's own tile picture could not be read (${friendlyError(e)}), so the icon is made on its own."
             } finally {
                 factoryBusy = false
+            }
+        }
+    }
+
+    /** Writes the head unit's own, untouched picture for [rel] to the file the person chose: so it can be sent on
+     *  and looked at closely, the way a saved log is, rather than guessed at from a small preview on the phone. */
+    fun saveFactoryOriginal(rel: String, uri: Uri) {
+        val bytes = factoryTiles[rel]?.raw ?: return
+        scope.launch(Dispatchers.IO) {
+            try {
+                ctx.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+                    ?: throw java.io.IOException("The phone would not open that file for writing.")
+                factorySaveNote = "Saved: ${bytes.size} bytes."
+            } catch (e: Exception) {
+                factorySaveNote = "Could not save: ${e.message ?: e.javaClass.simpleName}"
+                AppLog.e("MenuLook", "Saving the head unit's own picture failed", e)
             }
         }
     }
@@ -289,7 +306,7 @@ class MenuLookController(
                     val old = next[slot.rel]
                     if (old != null && !old.made && !overwrite) continue
                     val factory = factoryTiles[slot.rel]
-                    val bytes = if (factory != null) PictureMaker.makeOverBackground(factory, base, slot, fit) else PictureMaker.make(base, slot, fit)
+                    val bytes = if (factory != null) PictureMaker.makeOverBackground(factory.cleaned, base, slot, fit) else PictureMaker.make(base, slot, fit)
                     next[slot.rel] = Chosen(src.name, bytes, MenuLook.slotProblem(slot, bytes), MenuLook.slotNote(slot, bytes), made = true)
                     ensureActive()
                 }

@@ -76,6 +76,12 @@ fun MenuLookScreen(vm: MainViewModel) {
     val sourcePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) m.makeFromPicture(uri)
     }
+    var savingFactory by remember { mutableStateOf<String?>(null) }
+    val factorySaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/png")) { uri ->
+        val rel = savingFactory
+        savingFactory = null
+        if (uri != null && rel != null) m.saveFactoryOriginal(rel, uri)
+    }
     var aiAsk by remember { mutableStateOf(false) }
     if (aiAsk) AiDrawAsk(m) { aiAsk = false }
     if (vm.exp.aiKeyDialog) {
@@ -202,7 +208,7 @@ fun MenuLookScreen(vm: MainViewModel) {
                         }
                         if (factory != null) {
                             Column {
-                                FactoryPreview(remember(factory) { bitmapOf(factory) })
+                                FactoryPreview(remember(factory) { bitmapOf(factory.cleaned) })
                                 Text("cleared", fontSize = 9.sp, color = muted)
                             }
                             Spacer(Modifier.width(10.dp))
@@ -224,9 +230,15 @@ fun MenuLookScreen(vm: MainViewModel) {
                             Text(if (c == null) "CHOOSE PNG" else "CHOOSE ANOTHER", fontSize = 12.sp)
                         }
                         if (c != null) TextButton(onClick = { m.clearPicture(slot.rel) }, enabled = !m.working) { Text("CLEAR", fontSize = 12.sp) }
+                        if (factory != null) {
+                            TextButton(onClick = { savingFactory = slot.rel; factorySaver.launch(slot.rel.substringAfterLast('/')) }) {
+                                Text("SAVE THE HEAD UNIT'S OWN PNG", fontSize = 11.sp)
+                            }
+                        }
                     }
                 }
             }
+            if (m.factorySaveNote.isNotEmpty()) Text(m.factorySaveNote, fontSize = 11.sp, color = muted, modifier = Modifier.padding(top = 2.dp))
             if (m.brand?.startsWith("bmw") == true) {
                 Text(
                     when {
