@@ -216,14 +216,23 @@ object Hsfz {
                     s.getOutputStream().flush()
                     var negativeNrc: Int? = null
                     var sawPositive = false
-                    val deadline = System.currentTimeMillis() + 1200
+                    var deadline = System.currentTimeMillis() + 1200
+                    // A real fault-memory erase can take the ECU well past the usual wait, so NRC 0x78
+                    // ("request received, response pending") isn't a rejection - it's the ECU asking for
+                    // more time. Keep listening instead of recording it as a failure, but not forever.
+                    val hardDeadline = System.currentTimeMillis() + 6000
                     while (System.currentTimeMillis() < deadline) {
                         val f = readFrame(s.getInputStream()) ?: break
                         if (f.type != CW_DIAG || f.payload.size < 3) continue
                         val resp = f.payload.copyOfRange(2, f.payload.size)
                         if (resp.isEmpty()) continue
                         if ((resp[0].toInt() and 0xFF) == 0x7F) {
-                            if (resp.size >= 3) negativeNrc = resp[2].toInt() and 0xFF
+                            val nrc = if (resp.size >= 3) resp[2].toInt() and 0xFF else -1
+                            if (nrc == 0x78 && System.currentTimeMillis() < hardDeadline) {
+                                deadline = System.currentTimeMillis() + 1200
+                                continue
+                            }
+                            negativeNrc = nrc
                         } else {
                             sawPositive = true
                         }

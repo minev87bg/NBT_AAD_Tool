@@ -317,8 +317,9 @@ private fun WriteCodingSection(vm: MainViewModel) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     Text("Write coding", fontSize = 15.sp, fontWeight = FontWeight.Medium)
     Text(
-        "Reads a fresh backup, then — only for the bits CHECK CODINGS found not set — re-signs and writes " +
-            "them. Never touches the Vehicle Order. The backup can always be written back afterward.",
+        "Reads a fresh BackUp of the HeadUnit and then You can write whatever is not set from the required " +
+            "coding parameters to the it. After write the codes will be cleared. Since SSH is open you " +
+            "should expect a DTC for that.",
         fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
     )
     OutlinedButton(
@@ -458,18 +459,29 @@ private fun CodingCheckConsole(results: List<com.nbtaad.editor.net.CodingResult>
         }
         for (r in results) {
             val passed = r.status == com.nbtaad.editor.net.CodingStatus.SET
-            val note = when (r.status) {
-                com.nbtaad.editor.net.CodingStatus.SET -> "SET"
-                com.nbtaad.editor.net.CodingStatus.NOT_SET -> "NOT SET (reads ${r.rawValue})"
-                com.nbtaad.editor.net.CodingStatus.UNCERTAIN -> "reads ${r.rawValue}"
-                com.nbtaad.editor.net.CodingStatus.UNREADABLE -> "couldn't read"
+            val label = if (passed) {
+                r.bit.token
+            } else {
+                val note = when (r.status) {
+                    com.nbtaad.editor.net.CodingStatus.NOT_SET -> "NOT SET (reads ${r.rawValue})"
+                    com.nbtaad.editor.net.CodingStatus.UNCERTAIN -> "reads ${r.rawValue}"
+                    com.nbtaad.editor.net.CodingStatus.UNREADABLE -> "couldn't read"
+                    com.nbtaad.editor.net.CodingStatus.SET -> "" // unreachable: passed covers SET
+                }
+                "${r.bit.token}: $note"
             }
-            Text(
-                "${r.bit.token}: $note",
-                fontSize = 12.sp, lineHeight = 16.sp, fontFamily = FontFamily.Monospace,
-                color = if (passed) Color(0xFF7CD68A) else Color(0xFFFF8A80),
-                modifier = Modifier.padding(top = 2.dp),
-            )
+            Row(Modifier.fillMaxWidth().padding(top = 2.dp)) {
+                Text(
+                    if (passed) "✓ " else "✗ ",
+                    fontSize = 12.sp, lineHeight = 16.sp, fontFamily = FontFamily.Monospace,
+                    color = if (passed) Color(0xFF7CD68A) else Color(0xFFFF8A80),
+                )
+                Text(
+                    label,
+                    fontSize = 12.sp, lineHeight = 16.sp, fontFamily = FontFamily.Monospace,
+                    color = Color(0xFFD0D4D0),
+                )
+            }
         }
     }
 }

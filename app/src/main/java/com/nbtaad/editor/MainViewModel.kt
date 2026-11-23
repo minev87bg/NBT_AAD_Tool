@@ -1316,6 +1316,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * gateway, ZGW); later, checking and changing its coding as well.
      */
     fun choosePrepare() {
+        // The detection screen's own status ("...Press NEXT.") has no NEXT button to point to here -
+        // start this page clean; a tap on CHECK CODINGS/READ BACKUP/etc. sets its own feedback right away.
+        feedback = ""
+        feedbackError = false
         screen = Screen.PREPARE
     }
 
