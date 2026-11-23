@@ -957,6 +957,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Set when RECOVER ON THIS PHONE is tapped, to show the "these have to be yours" explainer first. */
     var showRecoveryInfo by mutableStateOf(false)
 
+    /** Result of the last on-device recovery attempt - shown right by the Coding keys button, not the shared [feedback] (that one renders up by CHECK AGAIN, far off-screen from here). */
+    var recoveryFeedback by mutableStateOf("")
+    var recoveryFeedbackError by mutableStateOf(false)
+
     /**
      * Recovers both coding keys on the phone itself, from a folder the owner picked (their own
      * PSdZData `security/` folder, or anything containing it) - no PC, no Python. Walks the
@@ -967,6 +971,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun recoverCodingKeysFromFolder(treeUri: android.net.Uri) {
         if (recoveringKeys) return
         recoveringKeys = true
+        recoveryFeedback = ""
+        recoveryFeedbackError = false
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val found = com.nbtaad.editor.net.PsdzFolderScan.scan(ctx, treeUri)
@@ -990,17 +996,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 hasNcdKey = codingKeyStore.hasNcdKey()
                 hasL3Key = codingKeyStore.hasL3Key()
-                feedback = when {
+                recoveryFeedback = when {
                     gotNcd && gotL3 -> "Recovered both keys from that folder."
                     gotNcd -> "Recovered the NCD key. No sec_auth_l3.xml was found in that folder for the L3 key."
                     gotL3 -> "Recovered the L3 key. No sec_ncdkeys.xml was found in that folder for the NCD key."
                     else -> "Nothing recovered."
                 }
-                feedbackError = !(gotNcd || gotL3)
+                recoveryFeedbackError = !(gotNcd || gotL3)
             } catch (e: Exception) {
                 AppLog.e("Coding", "On-device key recovery failed", e)
-                feedback = "Couldn't recover a key from that folder: ${friendlyError(e)}"
-                feedbackError = true
+                recoveryFeedback = "Couldn't recover a key from that folder: ${friendlyError(e)}"
+                recoveryFeedbackError = true
             } finally {
                 recoveringKeys = false
             }

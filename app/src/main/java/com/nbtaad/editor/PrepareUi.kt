@@ -209,6 +209,13 @@ private fun CodingKeysSection(vm: MainViewModel) {
         modifier = Modifier.fillMaxWidth(),
     ) { Text(if (vm.recoveringKeys) "RECOVERING…" else "RECOVER ON THIS PHONE…") }
     if (vm.recoveringKeys) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
+    if (vm.recoveryFeedback.isNotEmpty()) {
+        Text(
+            vm.recoveryFeedback, fontSize = 11.sp,
+            color = if (vm.recoveryFeedbackError) Red else muted,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+    }
     if (vm.showRecoveryInfo) {
         AlertDialog(
             onDismissRequest = { vm.showRecoveryInfo = false },
@@ -222,14 +229,17 @@ private fun CodingKeysSection(vm: MainViewModel) {
                     )
                     Text(
                         "Specifically: the small security/ files (sec_security.lic, sec_keyreference.xml, " +
-                            "sec_ncdkeys.xml, sec_auth_l3.xml) plus the two BMW logo images that live in PSdZ's " +
-                            "resource.jar.",
+                            "sec_ncdkeys.xml, sec_auth_l3.xml) AND resource.jar, which holds the two BMW logo " +
+                            "images the recovery also needs. In a real PSdZ install these usually live in two " +
+                            "different folders (resource.jar is often under PSdZ/bin/psdz/, separate from " +
+                            "security/) — pick (or gather everything into) one folder that has both somewhere " +
+                            "underneath it, or the logo images on their own won't be found.",
                         modifier = Modifier.padding(top = 10.dp),
                     )
                     Text(
-                        "How they're packaged doesn't matter — loose in a folder, zipped, nested inside another " +
-                            "zip, still inside resource.jar — point this at any folder containing them, in any of " +
-                            "those shapes, and they'll be found.",
+                        "Packaging doesn't matter beyond that — loose, zipped, nested inside another zip, still " +
+                            "inside resource.jar — point this at a folder containing all of it, in any of those " +
+                            "shapes, and it'll be found.",
                         modifier = Modifier.padding(top = 10.dp),
                     )
                     Text(
@@ -344,7 +354,7 @@ private fun CodingRow(r: com.nbtaad.editor.net.CodingResult) {
     Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(8.dp).clip(CircleShape).background(dotColor))
         Column(Modifier.padding(start = 10.dp)) {
-            Text("${r.bit.token} — ${r.bit.description}", fontSize = 13.sp)
+            Text(r.bit.token, fontSize = 13.sp, maxLines = 1)
             Text(note, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }

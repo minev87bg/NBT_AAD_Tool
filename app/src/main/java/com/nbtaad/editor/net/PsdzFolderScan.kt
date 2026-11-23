@@ -44,10 +44,12 @@ object PsdzFolderScan {
             ?: throw IllegalArgumentException("couldn't open that folder")
 
         val byName = HashMap<String, ByteArray>()
+        var archivesScanned = 0
 
         fun consider(leaf: String, bytes: ByteArray) {
             if (leaf in WANTED && leaf !in byName) byName[leaf] = bytes
             if ((leaf.endsWith(".zip") || leaf.endsWith(".jar")) && bytes.size <= MAX_ARCHIVE_BYTES) {
+                archivesScanned++
                 scanArchive(bytes, ::consider)
             }
         }
@@ -76,7 +78,19 @@ object PsdzFolderScan {
         if (ncd == null && l3 == null) missing.add("sec_ncdkeys.xml and/or sec_auth_l3.xml")
         val logo = byName["bmw_logo.png"]
         val miniLogo = byName["bmw_mini_logo.png"]
-        if (logo == null || miniLogo == null) missing.add("bmw_logo.png + bmw_mini_logo.png")
+        if (logo == null || miniLogo == null) {
+            missing.add(
+                if (archivesScanned == 0) {
+                    "bmw_logo.png + bmw_mini_logo.png (no .zip/.jar - e.g. resource.jar - was found under that " +
+                        "folder either; resource.jar usually lives in a different folder than security/, often " +
+                        "under PSdZ/bin/psdz/ - make sure it (or the loose PNGs) is somewhere under the folder " +
+                        "you pick)"
+                } else {
+                    "bmw_logo.png + bmw_mini_logo.png (looked inside $archivesScanned archive(s) under that " +
+                        "folder, none contained them)"
+                },
+            )
+        }
 
         if (missing.isNotEmpty()) {
             throw FileNotFoundException(
