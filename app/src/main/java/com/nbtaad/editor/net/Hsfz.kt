@@ -296,8 +296,17 @@ object Hsfz {
          */
         fun securityAccessSeedCoding(testerId: ByteArray = ByteArray(4)): Outcome =
             exchange(byteArrayOf(0x27, 0x01) + testerId)
-        fun securityAccessSendKey(level: Int, key: ByteArray): Outcome =
-            exchange(byteArrayOf(0x27, level.toByte()) + key, timeoutMs = 6000)
+
+        /**
+         * Matching sendKey for securityAccessSeedCoding(). Confirmed on-car 2026-11-23: the previous
+         * version of this call sent `27 01 <key>` - reusing requestSeed's own subfunction byte - and got
+         * NRC 0x13. The raw hex showed a 134-byte message tagged with subfunction 0x01, which the ECU
+         * validates against requestSeed's fixed 6-byte shape and rejects on length, never even looking at
+         * the key. Per ISO 14229 (and the reference project's own 03-write-flow.md: `27 02 <key> -> 67
+         * 02`), sendKey's subfunction is requestSeed's + 1 - 0x02 here, not 0x01.
+         */
+        fun securityAccessSendKeyCoding(key: ByteArray): Outcome =
+            exchange(byteArrayOf(0x27, 0x02) + key, timeoutMs = 6000)
         fun readDataByIdentifier(did: Int): Outcome =
             exchange(byteArrayOf(0x22, (did ushr 8).toByte(), did.toByte()))
         fun writeDataByIdentifier(did: Int, data: ByteArray): Outcome =

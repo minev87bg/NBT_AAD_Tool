@@ -157,7 +157,9 @@ object CodingWrite {
                     steps.add(WriteStep("Compute L3 key response", false, e.message ?: "failed"))
                     return WriteOutcome(steps, false, null)
                 }
-                val saOutcome = session.securityAccessSendKey(0x01, sendKey)
+                // Confirmed on-car: securityAccessSendKey(0x01, ...) reused requestSeed's own
+                // subfunction byte and got NRC 0x13 - see the comment on securityAccessSendKeyCoding().
+                val saOutcome = session.securityAccessSendKeyCoding(sendKey)
                 steps.add(describeOutcome("SecurityAccess: send key", saOutcome))
                 if (saOutcome !is Hsfz.CodingSession.Outcome.Positive) return WriteOutcome(steps, false, null)
 
