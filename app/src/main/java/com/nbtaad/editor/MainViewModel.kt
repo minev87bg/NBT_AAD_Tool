@@ -926,6 +926,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var codingBackup by mutableStateOf<com.nbtaad.editor.net.BackupResult?>(null)
     var codingBusy by mutableStateOf(false)
     var codingWriteLog by mutableStateOf<List<com.nbtaad.editor.net.WriteStep>?>(null)
+    /** The head unit's own DTC count at the moment the backup was read - the "before" half of the
+     *  before/after noted in [applyAaCoding]/[revertCoding]'s feedback. Null if it couldn't be read. */
+    var dtcCountBeforeWrite by mutableStateOf<Int?>(null)
     /** Set when WRITE CODING is tapped, to show the confirmation dialog; cleared on either answer. */
     var confirmWriteCoding by mutableStateOf(false)
     /** Read-only SecurityAccess level probe (PROBE SECURITYACCESS) - never sends a key, nothing is unlocked or written. */
@@ -1032,9 +1035,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (codingBusy) return
         codingBusy = true
         codingWriteLog = null
+        dtcCountBeforeWrite = null
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 codingBackup = com.nbtaad.editor.net.CodingWrite.readBackup(ip)
+                // Best-effort "before" snapshot for the write/revert feedback below; failing to read it
+                // just means that note is skipped later, not that the backup itself failed.
+                dtcCountBeforeWrite = com.nbtaad.editor.net.CodingWrite.headUnitDtcCount(ip)
             } catch (e: Exception) {
                 AppLog.e("Coding", "Reading the coding backup failed", e)
             } finally {
@@ -1072,6 +1079,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val canWriteCoding: Boolean
         get() = codingBackup?.mem != null && detect.vin != null && codingFixes.isNotEmpty() && !codingBusy
 
+    /**
+     * Runs "clear all DTCs" (the whole-car broadcast macro) and appends its steps to [codingWriteLog]
+     * so SHOW LOG covers it too. Returns a short sentence to tack onto [feedback]: the head unit's own
+     * before/after DTC count when both are readable (the [dtcCountBeforeWrite] snapshot READ BACKUP
+     * took, and a fresh read now), otherwise just whether the clear itself went through. Called from
+     * [applyAaCoding] and [revertCoding] only after the head unit is confirmed back - never right after
+     * the reset is sent.
+     */
+    private fun clearCarFaultsAndDescribe(ip: String): String {
+        val steps = com.nbtaad.editor.net.CodingWrite.clearAllCarFaults(ip)
+        codingWriteLog = (codingWriteLog ?: emptyList()) + steps
+        for (s in steps) {
+            if (s.ok) AppLog.i("Coding", "Clear faults - ${s.name}: ${s.detail}") else AppLog.w("Coding", "Clear faults - ${s.name}: ${s.detail}")
+        }
+        val before = dtcCountBeforeWrite
+        val after = com.nbtaad.editor.net.CodingWrite.headUnitDtcCount(ip)
+        return when {
+            steps.any { !it.ok } -> " Couldn't fully clear the car's fault memory - see the log."
+            before != null && after != null -> " Cleared the car's fault memory (head unit: $before → $after)."
+            else -> " Cleared the car's fault memory."
+        }
+    }
+
     /** WRITE CODING, after the person has confirmed: re-signs the backup with the fixes applied and writes it through. */
     fun applyAaCoding() {
         confirmWriteCoding = false
@@ -1103,11 +1133,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         AppLog.w("Coding", "Auto re-check after the write failed: ${e.message}")
                         null
                     }
-                    feedback = if (codingAllSet) {
-                        "Wrote ${fixes.size} coding bit(s) - confirmed set."
-                    } else {
-                        "Wrote ${fixes.size} coding bit(s), but the re-check doesn't show them all set yet - give the head unit a moment and tap CHECK CODINGS."
-                    }
+                    // Only now, with the head unit confirmed back (the re-check above just talked to it) -
+                    // not right after the reset was sent - is it safe to assume it's listening on the bus
+                    // again for the whole-car fault-memory clear to actually reach it.
+                    val faultsNote = clearCarFaultsAndDescribe(ip)
+                    feedback = (
+                        if (codingAllSet) {
+                            "Wrote ${fixes.size} coding bit(s) - confirmed set."
+                        } else {
+                            "Wrote ${fixes.size} coding bit(s), but the re-check doesn't show them all set yet - give the head unit a moment and tap CHECK CODINGS."
+                        }
+                        ) + faultsNote
                     feedbackError = !codingAllSet
                 } else {
                     feedback = "The write stopped partway (see the log) - nothing further was sent."
@@ -1150,7 +1186,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         AppLog.w("Coding", "Auto re-check after the revert failed: ${e.message}")
                         null
                     }
-                    feedback = "Reverted to the backup."
+                    // Same reasoning as applyAaCoding(): wait for the head unit to be confirmed back first.
+                    val faultsNote = clearCarFaultsAndDescribe(ip)
+                    feedback = "Reverted to the backup." + faultsNote
                     feedbackError = false
                 } else {
                     feedback = "The revert stopped partway (see the log)."

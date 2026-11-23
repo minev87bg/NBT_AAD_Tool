@@ -202,6 +202,13 @@ object CodingWrite {
     fun revertCoding(zgwIp: String, backupMem: Map<Int, Int>, ncdKey: NcdSigning.Key, l3Key: L3.Key, ownVin: String): WriteOutcome =
         writeCoding(zgwIp, backupMem, emptyList(), ncdKey, l3Key, ownVin)
 
+    /** "Clear all DTCs", broadcast to the whole car — not part of the signed write, no key needed, its own standalone
+     * action run once the head unit a write or revert just reset is back. See [Hsfz.clearAllCarFaults]. */
+    fun clearAllCarFaults(zgwIp: String): List<WriteStep> = Hsfz.clearAllCarFaults(zgwIp)
+
+    /** How many DTCs the head unit itself currently has stored — see [Hsfz.readHeadUnitDtcCount]. */
+    fun headUnitDtcCount(zgwIp: String): Int? = Hsfz.readHeadUnitDtcCount(zgwIp)
+
     /** Odd (requestSeed) SecurityAccess levels worth trying when level 0x01 is rejected: common BMW
      * write-unlock levels, plus 0x11 (the flash level - proven on-car in the reference project) as a
      * sanity check that SecurityAccess works *at all* in this coding session. */

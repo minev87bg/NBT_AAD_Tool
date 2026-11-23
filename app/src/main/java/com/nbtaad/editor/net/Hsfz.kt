@@ -25,6 +25,14 @@ object Hsfz {
     private const val ZGW = 0x10
     private const val HEAD_UNIT = 0x63
 
+    // "Clear all DTCs" (clearAllCarFaults, below) needs different addressing from everything else in
+    // this file: E-Sys's own Transmitter tool macro targets 0xDF so every ECU on the bus reacts, not
+    // just the head unit - and, confirmed by the car's owner testing that same tool, only answers at
+    // all when the source/tester address is 0xF5, not the usual 0xF4. Neither address is explained
+    // anywhere; both are simply what made the car actually react.
+    private const val TESTER_BROADCAST = 0xF5
+    private const val BROADCAST_ALL = 0xDF
+
     private const val CW_DIAG = 0x0001
     private const val CW_ACK = 0x0002
 
@@ -133,6 +141,107 @@ object Hsfz {
             AppLog.d("HSFZ", "Reading datagroup 0x%04X from $zgwIp failed: ${e.javaClass.simpleName}: ${e.message}".format(datagroup))
             null
         }
+    }
+
+    /**
+     * How many DTCs the head unit currently has stored (UDS `19 01 FF` - reportNumberOfDTCByStatusMask,
+     * any status bit set), as a quick before/after around a coding write or revert. Scoped to the one
+     * ECU this app already talks to one-on-one - not "the whole car" the way [clearAllCarFaults] is;
+     * null if it can't be read, which is not treated as zero.
+     */
+    fun readHeadUnitDtcCount(zgwIp: String): Int? {
+        return try {
+            Socket().use { s ->
+                s.tcpNoDelay = true
+                s.connect(InetSocketAddress(zgwIp, TCP_PORT), 2000)
+                s.soTimeout = 2000
+                s.getOutputStream().write(diagFrame(TESTER, HEAD_UNIT, byteArrayOf(0x19, 0x01, 0xFF.toByte())))
+                s.getOutputStream().flush()
+                val deadline = System.currentTimeMillis() + 3000
+                while (System.currentTimeMillis() < deadline) {
+                    val f = readFrame(s.getInputStream()) ?: break
+                    if (f.type != CW_DIAG || f.payload.size < 3) continue
+                    val resp = f.payload.copyOfRange(2, f.payload.size)
+                    if (resp.isEmpty()) continue
+                    when (resp[0].toInt() and 0xFF) {
+                        0x59 -> if (resp.size >= 6 && resp[1] == 0x01.toByte()) {
+                            return ((resp[4].toInt() and 0xFF) shl 8) or (resp[5].toInt() and 0xFF)
+                        }
+                        0x7F -> {
+                            val nrc = if (resp.size >= 3) resp[2].toInt() and 0xFF else -1
+                            if (nrc == 0x78) continue
+                            AppLog.d("HSFZ", "Reading the head unit's DTC count: rejected (0x%02X)".format(nrc))
+                            return null
+                        }
+                    }
+                }
+                null
+            }
+        } catch (e: Exception) {
+            AppLog.d("HSFZ", "Reading the head unit's DTC count from $zgwIp failed: ${e.javaClass.simpleName}: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * "Clear all DTCs": E-Sys's own Transmitter tool macro for clearing fault memory across the whole
+     * car in one shot, not just the head unit - five UDS requests, in order: ClearDiagnosticInformation
+     * (all groups), then three BMW-specific routine-control steps (InfoSpeicherLoeschen - a separate
+     * "info memory" of its own - then ZFS-DM Lock/Clear/Unlock), each broadcast to every ECU on the bus
+     * at once (target [BROADCAST_ALL], not the head unit's own [HEAD_UNIT]) using [TESTER_BROADCAST] as
+     * the source address - see the comment on those two constants for why.
+     *
+     * A broadcast request has no single guaranteed answer: several ECUs, one, or none may reply, and no
+     * reply at all is the normal case here, not a failure - only an explicit negative response (0x7F) is
+     * reported as one. Call only once the head unit the write/revert just reset has actually come back
+     * (it has to be listening on the bus again for its own fault memory to react to this).
+     */
+    fun clearAllCarFaults(zgwIp: String): List<WriteStep> {
+        val macro = listOf(
+            "Clear DTC" to byteArrayOf(0x14, 0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte()),
+            "Clear info memory" to byteArrayOf(0x31, 0x01, 0x0F, 0x06),
+            "ZFS: lock" to byteArrayOf(0x31, 0x01, 0x40, 0x00, 0x00),
+            "ZFS: clear" to byteArrayOf(0x31, 0x01, 0x40, 0x00, 0x05),
+            "ZFS: unlock" to byteArrayOf(0x31, 0x01, 0x40, 0x00, 0x01),
+        )
+        val steps = mutableListOf<WriteStep>()
+        try {
+            Socket().use { s ->
+                s.tcpNoDelay = true
+                s.connect(InetSocketAddress(zgwIp, TCP_PORT), 3000)
+                s.soTimeout = 1200
+                for ((label, uds) in macro) {
+                    AppLog.d("HSFZ", "-> (broadcast) ${uds.toHexSpaced()}")
+                    s.getOutputStream().write(diagFrame(TESTER_BROADCAST, BROADCAST_ALL, uds))
+                    s.getOutputStream().flush()
+                    var negativeNrc: Int? = null
+                    var sawPositive = false
+                    val deadline = System.currentTimeMillis() + 1200
+                    while (System.currentTimeMillis() < deadline) {
+                        val f = readFrame(s.getInputStream()) ?: break
+                        if (f.type != CW_DIAG || f.payload.size < 3) continue
+                        val resp = f.payload.copyOfRange(2, f.payload.size)
+                        if (resp.isEmpty()) continue
+                        if ((resp[0].toInt() and 0xFF) == 0x7F) {
+                            if (resp.size >= 3) negativeNrc = resp[2].toInt() and 0xFF
+                        } else {
+                            sawPositive = true
+                        }
+                    }
+                    steps.add(
+                        when {
+                            negativeNrc != null -> WriteStep(label, false, "rejected (NRC 0x%02X)".format(negativeNrc))
+                            sawPositive -> WriteStep(label, true, "OK")
+                            else -> WriteStep(label, true, "sent (broadcast - no reply expected)")
+                        },
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            AppLog.e("HSFZ", "Clearing all car faults failed", e)
+            steps.add(WriteStep("Connect", false, e.message ?: e.javaClass.simpleName))
+        }
+        return steps
     }
 
     /** Reads the VIN from the ZGW (UDS 22 F190). Used only when the UDP discovery gave no VIN. */
