@@ -932,6 +932,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var codingWriteLog by mutableStateOf<List<com.nbtaad.editor.net.WriteStep>?>(null)
     /** Set when WRITE CODING is tapped, to show the confirmation dialog; cleared on either answer. */
     var confirmWriteCoding by mutableStateOf(false)
+    /** Read-only SecurityAccess level probe (PROBE SECURITYACCESS) - never sends a key, nothing is unlocked or written. */
+    var probingSecurityAccess by mutableStateOf(false)
+    var securityAccessProbeLog by mutableStateOf<List<com.nbtaad.editor.net.WriteStep>?>(null)
 
     /** Imports a key file the person picked (ncd_key.json or l3_key.json, from the PC-side recovery tool). */
     fun importCodingKey(uri: android.net.Uri, ncd: Boolean) {
@@ -1107,6 +1110,36 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 feedbackError = true
             } finally {
                 codingBusy = false
+            }
+        }
+    }
+
+    /**
+     * Read-only diagnostic: tries SecurityAccess requestSeed at a handful of candidate levels inside
+     * the coding session - never sends a key, so nothing is ever unlocked or written to the car. For
+     * when WRITE CODING's own "SecurityAccess: request seed" step is rejected: the reference project
+     * this app's write flow is ported from is explicit that level 0x01 for the *coding* write was
+     * carried over from the flash level (0x11), which was proven on a real car, but was never itself
+     * independently confirmed - this finds out, on this car, instead of guessing further.
+     */
+    fun probeSecurityAccessLevels() {
+        val ip = detect.zgw ?: return
+        val vin = detect.vin ?: return
+        if (probingSecurityAccess) return
+        probingSecurityAccess = true
+        securityAccessProbeLog = null
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val steps = com.nbtaad.editor.net.CodingWrite.probeSecurityAccessLevels(ip, vin)
+                securityAccessProbeLog = steps
+                for (s in steps) {
+                    if (s.ok) AppLog.i("Coding", "Probe step - ${s.name}: ${s.detail}") else AppLog.w("Coding", "Probe step - ${s.name}: ${s.detail}")
+                }
+            } catch (e: Exception) {
+                AppLog.e("Coding", "Probing SecurityAccess levels failed", e)
+                securityAccessProbeLog = listOf(com.nbtaad.editor.net.WriteStep("Connect", false, e.message ?: e.javaClass.simpleName))
+            } finally {
+                probingSecurityAccess = false
             }
         }
     }

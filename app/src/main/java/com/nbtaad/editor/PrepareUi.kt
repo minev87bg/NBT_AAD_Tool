@@ -341,6 +341,33 @@ private fun WriteCodingSection(vm: MainViewModel) {
             }
         }
     }
+
+    val securityAccessFailed = vm.codingWriteLog?.any { !it.ok && it.name.startsWith("SecurityAccess") } == true
+    if (securityAccessFailed) {
+        Text(
+            "SecurityAccess was rejected above. This car's firmware may unlock a coding write at a different " +
+                "level than this app assumes — read-only check, never sends a key, writes nothing:",
+            fontSize = 12.sp, color = muted, modifier = Modifier.padding(top = 14.dp, bottom = 6.dp),
+        )
+        OutlinedButton(
+            onClick = { vm.probeSecurityAccessLevels() },
+            enabled = vm.detect.zgw != null && !vm.probingSecurityAccess,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text(if (vm.probingSecurityAccess) "PROBING…" else "PROBE SECURITYACCESS LEVELS") }
+        if (vm.probingSecurityAccess) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
+    }
+
+    vm.securityAccessProbeLog?.let { log ->
+        Column(Modifier.padding(top = 12.dp)) {
+            Text("Level probe:", fontSize = 12.sp, color = muted)
+            for (step in log) {
+                Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(7.dp).clip(CircleShape).background(if (step.ok) Green else Red))
+                    Text("${step.name}: ${step.detail}", fontSize = 12.sp, modifier = Modifier.padding(start = 8.dp))
+                }
+            }
+        }
+    }
 }
 
 @Composable

@@ -184,4 +184,57 @@ object CodingWrite {
     /** Reverts to [backupMem] — already correctly signed, since it's what the car gave you — the same way: a signed write. */
     fun revertCoding(zgwIp: String, backupMem: Map<Int, Int>, ncdKey: NcdSigning.Key, l3Key: L3.Key, ownVin: String): WriteOutcome =
         writeCoding(zgwIp, backupMem, emptyList(), ncdKey, l3Key, ownVin)
+
+    /** Odd (requestSeed) SecurityAccess levels worth trying when level 0x01 is rejected: common BMW
+     * write-unlock levels, plus 0x11 (the flash level - proven on-car in the reference project) as a
+     * sanity check that SecurityAccess works *at all* in this coding session. */
+    private val PROBE_LEVELS = listOf(0x01, 0x03, 0x05, 0x07, 0x09, 0x0B, 0x0D, 0x1D, 0x1F, 0x21, 0x11)
+
+    /**
+     * READ-ONLY: enters the coding session and tries SecurityAccess requestSeed at each of
+     * [PROBE_LEVELS], one after another. Never calls sendKey, so no key is ever submitted and nothing
+     * is unlocked or written — a rejected or accepted seed changes nothing on the car either way.
+     * Reports every level tried, so whichever one answers with a real seed (`67 <level> <seed>`)
+     * instead of a negative response is visible directly, rather than guessed at.
+     */
+    fun probeSecurityAccessLevels(zgwIp: String, ownVin: String): List<WriteStep> {
+        val steps = mutableListOf<WriteStep>()
+        try {
+            Hsfz.CodingSession(zgwIp).use { session ->
+                val (vin, vinStep) = readVinFrom(session)
+                steps.add(vinStep)
+                if (vin == null || !vin.equals(ownVin.trim(), ignoreCase = true)) {
+                    steps.add(WriteStep("Confirm VIN", false, "car is ${vin ?: "unreadable"}, expected ${ownVin.trim()} — stopping"))
+                    return steps
+                }
+                steps.add(WriteStep("Confirm VIN", true, vin))
+
+                val ext = session.enterSession(0x03)
+                steps.add(describeOutcome("Enter extended session", ext))
+                if (ext !is Hsfz.CodingSession.Outcome.Positive) return steps
+
+                val coding = session.enterSession(0x41)
+                steps.add(describeOutcome("Enter coding session", coding))
+                if (coding !is Hsfz.CodingSession.Outcome.Positive) return steps
+
+                for (level in PROBE_LEVELS) {
+                    val label = "Request seed, level 0x%02X".format(level)
+                    steps.add(
+                        when (val o = session.securityAccessSeed(level)) {
+                            is Hsfz.CodingSession.Outcome.Positive -> {
+                                val seed = if (o.data.size > 2) o.data.copyOfRange(2, o.data.size) else ByteArray(0)
+                                WriteStep(label, true, "seed: ${seed.joinToString(" ") { "%02X".format(it) }}")
+                            }
+                            is Hsfz.CodingSession.Outcome.Negative -> WriteStep(label, false, "rejected (NRC 0x%02X)".format(o.nrc))
+                            Hsfz.CodingSession.Outcome.NoResponse -> WriteStep(label, false, "no response")
+                        },
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            AppLog.e("Coding", "Probing SecurityAccess levels failed", e)
+            steps.add(WriteStep("Connect", false, e.message ?: e.javaClass.simpleName))
+        }
+        return steps
+    }
 }
