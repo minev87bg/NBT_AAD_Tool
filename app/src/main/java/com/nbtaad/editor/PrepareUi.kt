@@ -142,6 +142,16 @@ fun PrepareScreen(vm: MainViewModel) {
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(if (vm.netDiagBusy) "READING…" else "NETWORK INFO (READ-ONLY)") }
             if (vm.netDiagBusy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
+
+            // Test-branch-only groundwork for the ZGW-over-AA-WiFi idea: still read-only, see
+            // ZgwBridgeDiag's own doc comment for exactly what this looks at and why.
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { vm.checkZgwBridgeReadiness() },
+                enabled = !vm.zgwDiagBusy,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(if (vm.zgwDiagBusy) "READING…" else "ZGW BRIDGE: CHECK READINESS (READ-ONLY)") }
+            if (vm.zgwDiagBusy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
         }
 
         Spacer(Modifier.height(12.dp))
@@ -230,6 +240,39 @@ fun PrepareScreen(vm: MainViewModel) {
                 }) { Text(if (copied) "COPIED ✓" else "COPY") }
             },
             dismissButton = { TextButton(onClick = { vm.showNetDiag = false }) { Text("CLOSE") } },
+        )
+    }
+
+    if (vm.showZgwDiag) {
+        val clip = LocalClipboardManager.current
+        var copied by remember { mutableStateOf(false) }
+        LaunchedEffect(copied) {
+            if (copied) {
+                delay(2000)
+                copied = false
+            }
+        }
+        AlertDialog(
+            onDismissRequest = { vm.showZgwDiag = false },
+            title = { Text("ZGW bridge readiness") },
+            text = {
+                Column {
+                    Text(
+                        "Read-only: the real dhcpd.uap0.conf content, its lease times, and a dry-run syntax check " +
+                            "against a throwaway /tmp copy. Nothing on the head unit is changed by reading this.",
+                        fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                    NetDiagConsole(vm.zgwDiagText ?: "", maxHeight = 340.dp)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    clip.setText(AnnotatedString(vm.zgwDiagText ?: ""))
+                    copied = true
+                }) { Text(if (copied) "COPIED ✓" else "COPY") }
+            },
+            dismissButton = { TextButton(onClick = { vm.showZgwDiag = false }) { Text("CLOSE") } },
         )
     }
 

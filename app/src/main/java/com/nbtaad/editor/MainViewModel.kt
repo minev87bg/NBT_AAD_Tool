@@ -1082,6 +1082,41 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // =====================================================================
+    // ZGW-bridge groundwork (test branch only, read-only): the real dhcpd.uap0.conf content, its dhcpd
+    // build's own version, active lease times, and a dry-run-only syntax check of the candidate route option
+    // against a throwaway /tmp copy. See ZgwBridgeDiag's own doc comment. Still nothing written to the real
+    // head unit - this exists purely to replace guesswork with the real file before any real edit is written.
+    // =====================================================================
+
+    var zgwDiagBusy by mutableStateOf(false)
+    var zgwDiagText by mutableStateOf<String?>(null)
+    var showZgwDiag by mutableStateOf(false)
+
+    fun checkZgwBridgeReadiness() {
+        if (zgwDiagBusy) return
+        zgwDiagBusy = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                NetworkBinder.bindToLocalNetwork(ctx)
+                val r = detectCarSsh { feedback = it }
+                applyResult(r)
+                val host = r.huIp ?: detect.hu
+                zgwDiagText = if (host != null) {
+                    com.nbtaad.editor.net.ZgwBridgeDiag.run(host)
+                } else {
+                    "No head unit found to connect to. Connect first, then try again."
+                }
+            } catch (e: Exception) {
+                AppLog.e("ZgwBridgeDiag", "Reading dhcpd's real config failed", e)
+                zgwDiagText = "Failed: ${friendlyError(e)}"
+            } finally {
+                zgwDiagBusy = false
+                showZgwDiag = true
+            }
+        }
+    }
+
+    // =====================================================================
     // Writing coding: the owner's own recovered keys, a mandatory backup, then a signed write
     // =====================================================================
 
