@@ -24,6 +24,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -170,6 +171,28 @@ fun PrepareScreen(vm: MainViewModel) {
                 ) { Text("REVERT") }
             }
             if (vm.zgwApplyBusy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
+
+            // The one held-back action: actually restarting dhcpd. Its own confirmation, worded differently
+            // from WRITE/REVERT above, since this is the same risk category as the SSH-based restarts that
+            // have hung this head unit before - see ZgwBridgeApply's doc comment.
+            Spacer(Modifier.height(10.dp))
+            OutlinedButton(
+                onClick = { vm.confirmZgwRestart = true },
+                enabled = !vm.zgwRestartBusy,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Red),
+            ) { Text(if (vm.zgwRestartBusy) "RESTARTING…" else "RESTART DHCPD (uap0)") }
+            if (vm.zgwRestartBusy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
+
+            // Direct, unicast test - not over SSH. Read-only diagnostic traffic, same family as CHECK CODINGS,
+            // so no confirmation dialog, matching that convention.
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { vm.probeZgwDirect() },
+                enabled = !vm.zgwProbeBusy,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(if (vm.zgwProbeBusy) "PROBING…" else "PROBE ZGW (192.168.0.8, DIRECT)") }
+            if (vm.zgwProbeBusy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
         }
 
         Spacer(Modifier.height(12.dp))
@@ -358,6 +381,77 @@ fun PrepareScreen(vm: MainViewModel) {
                 }) { Text(if (copied) "COPIED ✓" else "COPY") }
             },
             dismissButton = { TextButton(onClick = { vm.showZgwApply = false }) { Text("CLOSE") } },
+        )
+    }
+
+    if (vm.confirmZgwRestart) {
+        AlertDialog(
+            onDismissRequest = { vm.confirmZgwRestart = false },
+            title = { Text("Restart dhcpd on uap0?", color = Red) },
+            text = {
+                Text(
+                    "Kills and relaunches the DHCP service for the Android Auto WiFi network, so it actually " +
+                        "reads the edited config instead of the one still in memory. This is a real process " +
+                        "restart on the head unit over SSH - the same kind of action as the restart methods that " +
+                        "have hung this head unit before, even though this is a small, separate daemon, not the " +
+                        "HMI. If something goes wrong, AA WiFi may stop working until the head unit itself " +
+                        "restarts (e.g. the normal 30s power-button reset).",
+                    fontSize = 13.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.confirmZgwRestart = false
+                    vm.restartZgwBridgeDhcp()
+                }) { Text("RESTART", color = Red) }
+            },
+            dismissButton = { TextButton(onClick = { vm.confirmZgwRestart = false }) { Text("CANCEL") } },
+        )
+    }
+
+    if (vm.showZgwRestart) {
+        val clip = LocalClipboardManager.current
+        var copied by remember { mutableStateOf(false) }
+        LaunchedEffect(copied) {
+            if (copied) {
+                delay(2000)
+                copied = false
+            }
+        }
+        AlertDialog(
+            onDismissRequest = { vm.showZgwRestart = false },
+            title = { Text("dhcpd restart: result") },
+            text = { NetDiagConsole(vm.zgwRestartText ?: "", maxHeight = 340.dp) },
+            confirmButton = {
+                TextButton(onClick = {
+                    clip.setText(AnnotatedString(vm.zgwRestartText ?: ""))
+                    copied = true
+                }) { Text(if (copied) "COPIED ✓" else "COPY") }
+            },
+            dismissButton = { TextButton(onClick = { vm.showZgwRestart = false }) { Text("CLOSE") } },
+        )
+    }
+
+    if (vm.showZgwProbe) {
+        val clip = LocalClipboardManager.current
+        var copied by remember { mutableStateOf(false) }
+        LaunchedEffect(copied) {
+            if (copied) {
+                delay(2000)
+                copied = false
+            }
+        }
+        AlertDialog(
+            onDismissRequest = { vm.showZgwProbe = false },
+            title = { Text("ZGW probe: result") },
+            text = { NetDiagConsole(vm.zgwProbeText ?: "", maxHeight = 340.dp) },
+            confirmButton = {
+                TextButton(onClick = {
+                    clip.setText(AnnotatedString(vm.zgwProbeText ?: ""))
+                    copied = true
+                }) { Text(if (copied) "COPIED ✓" else "COPY") }
+            },
+            dismissButton = { TextButton(onClick = { vm.showZgwProbe = false }) { Text("CLOSE") } },
         )
     }
 

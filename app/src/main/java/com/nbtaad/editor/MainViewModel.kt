@@ -1179,6 +1179,83 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // =====================================================================
+    // ZGW bridge: the held-back step (kill + relaunch dhcpd so the edit actually takes effect), and a direct,
+    // unicast test of whether it worked. The restart is the one action in this whole branch that's the same
+    // category of risk as the sysshutdown/OnOffDSICommander methods that have already hung this head unit twice -
+    // see ZgwBridgeApply's doc comment. The probe is NOT run over SSH at all: it's a direct TCP connection this
+    // app makes itself to the candidate ZGW address, over whatever network path is active right now - the same
+    // kind of call CodingCheck/resetHeadUnit already make once a ZGW address is known, just pointed at a fixed
+    // candidate (192.168.0.8) instead of one the broadcast-based discovery found, since broadcasts don't cross a
+    // routed hop even when the route itself works.
+    // =====================================================================
+
+    var zgwRestartBusy by mutableStateOf(false)
+    var zgwRestartText by mutableStateOf<String?>(null)
+    var showZgwRestart by mutableStateOf(false)
+    var confirmZgwRestart by mutableStateOf(false)
+
+    fun restartZgwBridgeDhcp() {
+        if (zgwRestartBusy) return
+        zgwRestartBusy = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                NetworkBinder.bindToLocalNetwork(ctx)
+                val r = detectCarSsh { feedback = it }
+                applyResult(r)
+                val host = r.huIp ?: detect.hu
+                zgwRestartText = if (host != null) {
+                    com.nbtaad.editor.net.ZgwBridgeApply.restartDhcpd(host)
+                } else {
+                    "No head unit found to connect to. Connect first, then try again."
+                }
+            } catch (e: Exception) {
+                AppLog.e("ZgwBridgeApply", "Restarting dhcpd failed", e)
+                zgwRestartText = "Failed: ${friendlyError(e)}"
+            } finally {
+                zgwRestartBusy = false
+                showZgwRestart = true
+            }
+        }
+    }
+
+    var zgwProbeBusy by mutableStateOf(false)
+    var zgwProbeText by mutableStateOf<String?>(null)
+    var showZgwProbe by mutableStateOf(false)
+
+    /** Candidate ZGW address seen in earlier diagnostics (over a direct ENET/WiFi-ENET-adapter connection). */
+    private val ZGW_CANDIDATE_IP = "192.168.0.8"
+
+    fun probeZgwDirect() {
+        if (zgwProbeBusy) return
+        zgwProbeBusy = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                NetworkBinder.bindToLocalNetwork(ctx)
+                val vin = Hsfz.readVin(ZGW_CANDIDATE_IP)
+                zgwProbeText = if (vin != null) {
+                    "Reached ZGW directly at $ZGW_CANDIDATE_IP, over whatever connection is active right now.\n\n" +
+                        "VIN read back: $vin\n\n" +
+                        "This is a direct TCP connection the app made itself (not over SSH) - a real VIN here is " +
+                        "end-to-end proof the path works over whatever is connected right now. It does not by " +
+                        "itself say whether that is AA WiFi alone or AA WiFi plus anything else also plugged in - " +
+                        "compare this against whether a WiFi-ENET/OBD adapter is connected at the same time."
+                } else {
+                    "No reply from $ZGW_CANDIDATE_IP over whatever is connected right now.\n\n" +
+                        "Either the route isn't live yet on the phone (needs a fresh DHCP lease after the dhcpd " +
+                        "restart - try toggling this phone's WiFi off/on to force one), or $ZGW_CANDIDATE_IP isn't " +
+                        "actually ZGW's address without whatever is normally connected alongside AA WiFi."
+                }
+            } catch (e: Exception) {
+                AppLog.e("ZgwProbe", "Probing ZGW directly failed", e)
+                zgwProbeText = "Failed: ${friendlyError(e)}"
+            } finally {
+                zgwProbeBusy = false
+                showZgwProbe = true
+            }
+        }
+    }
+
+    // =====================================================================
     // Writing coding: the owner's own recovered keys, a mandatory backup, then a signed write
     // =====================================================================
 

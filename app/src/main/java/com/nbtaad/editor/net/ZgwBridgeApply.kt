@@ -27,19 +27,17 @@ package com.nbtaad.editor.net
  *    `rfc3442-classless-static-routes` anywhere and skipping the whole backup+insert+swap if so, reporting
  *    "already applied" instead. Idempotent now: tapping WRITE ROUTE twice in a row does nothing the second time.
  *
- * 2. Restarting dhcpd so it actually notices the new file - deliberately NOT done here. ISC dhcpd doesn't reliably
- *    hot-reload, so making this edit "live" means either (a) killing and relaunching the running dhcpd process over
- *    this same SSH connection, or (b) relying on whatever already rewrites this file every 20-30 minutes in this
- *    car's own observed behavior (twice now, each time in sync with a phone's lease renewing) to also be the thing
- *    that restarts dhcpd itself, and just waiting for that. Option (a) is the same category of action - killing and
- *    relaunching a running process on this head unit over SSH - as the `sysshutdown`/`OnOffDSICommander` methods
- *    that have already hung this exact head unit twice. That doesn't make it certain to fail here too (dhcpd is a
- *    small, simple daemon, not the whole HMI), but it's close enough in kind that it deserves its own explicit
- *    decision rather than being silently bundled in alongside the much safer file-write step. Not wired up either
- *    way yet.
+ * 2. restartDhcpd() - the step held back until now. ISC dhcpd doesn't reliably hot-reload, so making an edit "live"
+ *    means actually killing and relaunching the running process over this same SSH connection - the same category
+ *    of action as the `sysshutdown`/`OnOffDSICommander` methods that have already hung this exact head unit twice.
+ *    Decided against waiting for the car's own apparent file-regeneration to do it instead: if that regeneration is
+ *    tied to the AA WiFi service restarting at ignition-on (consistent with the file sitting untouched for 30+
+ *    minutes of idle use, then changing right after a reconnect), the SAME event would also reset the file back to
+ *    its original, unedited content - meaning passive waiting could mean the edit is wiped at the exact moment
+ *    dhcpd would've had a chance to serve it, never actually reaching a live server. Wired behind its own separate
+ *    confirmation in the UI, distinct from WRITE ROUTE's.
  *
- * revertRoute() is the undo for writeRoute() only - it restores the most recent backup. It does not touch dhcpd
- * either, for the same reason.
+ * revertRoute() is the undo for writeRoute() only - it restores the most recent backup. It does not touch dhcpd.
  */
 object ZgwBridgeApply {
     private const val CONF = "/var/opt/conn/dhcpd.uap0.conf"
@@ -117,6 +115,52 @@ object ZgwBridgeApply {
             else
               echo "No backup found on this head unit - nothing to revert."
             fi
+        """.trimIndent()
+        val out = SshSession(host).use { ssh -> ssh.exec(script, timeoutMs = 20_000).text }
+        return "Read/written over SSH from $host.\n\n" + out.trimEnd() + "\n"
+    }
+
+    /**
+     * The held-back step: kills the running dhcpd on uap0 and relaunches it with the exact command line NetDiag's
+     * pidin dump showed it running with, so it actually reads [CONF] fresh. Tries `nohup` first (checked at call
+     * time, not assumed) so the relaunched process survives this SSH exec channel closing; falls back to plain
+     * backgrounding, with that fact reported plainly, if this shell doesn't have `nohup`. The liveness check in
+     * this same script only proves the process was alive before the channel closed - it does NOT prove it survived
+     * the channel closing. The real test is a separate, later check (CHECK READINESS, or just pidin again).
+     */
+    fun restartDhcpd(host: String): String {
+        val script = """
+            echo "== dhcpd before restart =="
+            OLDPID=${'$'}(cat /tmp/dhcpd.pid.uap0 2>/dev/null)
+            echo "pid file says: ${'$'}OLDPID"
+            pidin | grep -i dhcpd 2>&1
+            echo
+            if [ -n "${'$'}OLDPID" ]; then
+              echo "== stopping it =="
+              kill ${'$'}OLDPID 2>&1
+              sleep 1
+            fi
+            echo
+            echo "== relaunching =="
+            if command -v nohup >/dev/null 2>&1; then
+              nohup dhcpd -f -d -cf $CONF -lf /var/opt/conn/dhcpd.uap0.leases -pf /tmp/dhcpd.pid.uap0 uap0 >/dev/null 2>&1 &
+              echo "launched via nohup (should survive this SSH session closing)"
+            else
+              dhcpd -f -d -cf $CONF -lf /var/opt/conn/dhcpd.uap0.leases -pf /tmp/dhcpd.pid.uap0 uap0 >/dev/null 2>&1 &
+              echo "nohup not found on this shell - launched plain. Whether it survives this session closing is"
+              echo "unconfirmed either way - check again in a few seconds with a fresh SSH connection to know."
+            fi
+            sleep 1
+            NEWPID=${'$'}(cat /tmp/dhcpd.pid.uap0 2>/dev/null)
+            echo
+            echo "== right after relaunch, same session still open =="
+            echo "pid file says: ${'$'}NEWPID"
+            if [ -n "${'$'}NEWPID" ] && kill -0 ${'$'}NEWPID 2>/dev/null; then
+              echo "alive right now - this does NOT prove it stays alive once this SSH session closes"
+            else
+              echo "WARNING: no live process found at that pid right after relaunch"
+            fi
+            pidin | grep -i dhcpd 2>&1
         """.trimIndent()
         val out = SshSession(host).use { ssh -> ssh.exec(script, timeoutMs = 20_000).text }
         return "Read/written over SSH from $host.\n\n" + out.trimEnd() + "\n"
