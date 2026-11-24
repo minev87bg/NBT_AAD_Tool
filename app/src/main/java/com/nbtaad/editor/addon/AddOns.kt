@@ -53,7 +53,7 @@ class BuildSummary(
     val kind: Kind,
 ) {
     val total: Int get() = Names.ALL.size
-    val daemonFiles: List<String> get() = listOf(Names.DAEMON, Names.FIREWALL)
+    val daemonFiles: List<String> get() = listOf(Names.DAEMON)
     val pluginHave: List<String> get() = have.filter { Names.isPlugin(it) }
     val pluginMissing: List<String> get() = missing.filter { Names.isPlugin(it) }
 }
@@ -211,7 +211,7 @@ object AddOns {
         facts += "${s.entries.size} file${if (s.entries.size == 1) "" else "s"}" +
             (if (programs > 0) ", $programs made for the head unit" else "") +
             (if (scripts > 0) ", $scripts script${if (scripts == 1) "" else "s"}" else "") + "."
-        facts += "None of Sq00ky's build files (nbt-aad, pf_aa, the plugin files) are in it, and it is not an add-on the app knows."
+        facts += "None of Sq00ky's build files (nbt-aad, the plugin files) are in it, and it is not an add-on the app knows."
         return Recognition(
             Match.UNKNOWN, "Not a build the app knows", facts, problems, installable = false,
             verdict = if (s.refused != null) "The app cannot read this file." else "Not an NBT-AAD build: the app cannot install it.",
@@ -275,7 +275,7 @@ object AddOns {
     /** What the installer looked at, so "compatible" is not just a word. */
     private fun checkedFacts(b: BuildPackage): List<String> {
         val out = ArrayList<String>()
-        val programs = listOf(Names.DAEMON, Names.FIREWALL).filter { it in b.payloads }
+        val programs = listOf(Names.DAEMON).filter { it in b.payloads }
         if (programs.isNotEmpty()) out += "${programs.joinToString(" and ")} ${if (programs.size == 1) "is a" else "are"} 32-bit ARM program${if (programs.size == 1) "" else "s"}, the kind the head unit runs."
         if ("libNbtAad.so" in b.payloads) out += "libNbtAad.so is a 32-bit ARM library, the kind iDrive loads."
         return out

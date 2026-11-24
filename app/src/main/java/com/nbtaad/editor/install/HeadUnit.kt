@@ -26,7 +26,6 @@ class Reporter(
 class Outcome(
     val daemon: Boolean,
     val plugin: Boolean,
-    val skipped: List<String>,
     val daemonVersion: String?,
     val problems: List<String>,
 )
@@ -422,37 +421,42 @@ object HeadUnit {
             }
         }
 
-    // ---- stopping Android Auto, as the guide's step 2 ----
+    // ---- stopping the daemon (nbt-aad), as the guide's step 2 ----
 
     private fun scan(ssh: SshSession): ProcScan =
         RemoteScripts.parseProc(try { ssh.exec(RemoteScripts.procScan(), timeoutMs = 30_000).text } catch (e: Exception) { "" })
 
+    /**
+     * Stops nbt-aad's own process (not Android Auto itself, which may well still be connected - the daemon only runs
+     * on top of an active AA session, and can be absent, crashed, or not yet relaunched while AA stays up). Checked
+     * by searching /proc for a process whose exe path contains "nbt-aad", on both processors.
+     */
     private fun stopDaemon(ssh: SshSession, rep: Reporter, first: ProcScan) {
         var p = first
         if (!p.scanned) {
             rep.say(
-                "The app cannot see the head unit's process list, so it cannot tell whether Android Auto runs. " +
-                    "If it does, press Force Stop (Media/Radio, Android Auto) and run this again.",
+                "The app cannot see the head unit's process list, so it cannot tell whether nbt-aad is running. " +
+                    "If it is, press Force Stop (Media/Radio, Android Auto) and run this again.",
                 Level.WARN,
             )
             return
         }
         if (!p.any) {
-            rep.say("Android Auto is not running.", Level.OK)
+            rep.say("nbt-aad is not running.", Level.OK)
             return
         }
-        rep.say("Android Auto is still running. Stopping it…", Level.INFO)
+        rep.say("nbt-aad is still running. Stopping it…", Level.INFO)
         for (pid in p.here) try { ssh.exec(RemoteScripts.kill(pid), timeoutMs = 10_000) } catch (e: Exception) { /* checked below */ }
         for (pid in p.onHuOmap) try { ssh.exec(RemoteScripts.killOnHuOmap(pid), timeoutMs = 15_000) } catch (e: Exception) { /* checked below */ }
         Thread.sleep(2000)
         p = scan(ssh)
         if (p.any) {
             throw IOException(
-                "Android Auto is still running. On the head unit open Media/Radio, Android Auto and press " +
-                    "Force Stop, then try again."
+                "nbt-aad is still running. On the head unit open Media/Radio, Android Auto and press " +
+                    "Force Stop (this also stops nbt-aad), then try again."
             )
         }
-        rep.say("Android Auto is stopped.", Level.OK)
+        rep.say("nbt-aad is stopped.", Level.OK)
     }
 
 
@@ -536,7 +540,6 @@ object HeadUnit {
         if (!pkg.installable) throw IOException("These files cannot be installed: ${pkg.problems.firstOrNull() ?: "nothing to install"}")
         val daemon = pkg.payloads[Names.DAEMON]
         val plugin = pkg.pluginFiles.map { pkg.payloads.getValue(it) }
-        val skipped = pkg.found.filter { it == Names.FIREWALL }
         val total = (daemon?.size ?: 0).toLong() + plugin.sumOf { it.size.toLong() }
         val clock = Clock()
 
@@ -642,15 +645,8 @@ object HeadUnit {
                 }
             }
             for (m in problems) rep.say(m, Level.WARN)
-            if (skipped.isNotEmpty()) {
-                rep.say(
-                    "pf_aa was not installed: the firewall rules are built into nbt-aad now and are set up once from the " +
-                        "iDrive menu.",
-                    Level.INFO,
-                )
-            }
             rep.say("Done in ${clock.total()}.", Level.INFO)
-            Outcome(daemonDone, pluginDone, skipped, daemon?.let { BuildPackage.findVersion(it.bytes) } ?: st.version, problems)
+            Outcome(daemonDone, pluginDone, daemon?.let { BuildPackage.findVersion(it.bytes) } ?: st.version, problems)
         }
     }
 
@@ -812,7 +808,7 @@ object HeadUnit {
                 rep.say("The nbt-aad that is in place now is not executable. Swap it again or install a release.", Level.WARN)
             }
             rep.say("Done in ${clock.total()}.", Level.INFO)
-            Outcome(d, p, emptyList(), after.version, emptyList())
+            Outcome(d, p, after.version, emptyList())
         }
     }
 }

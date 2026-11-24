@@ -7,17 +7,18 @@ import kotlin.math.roundToInt
 
 /**
  * What the app knows about an NBT-AAD build, free of Android classes so the build's unit tests can run it.
- * The names are the ones Sq00ky's update guide (updating.md) and the release workflow use: the daemon, the
- * firewall helper, and the five files of the iDrive plugin (which a release ships inside `Releases.zip`).
+ * The names are the ones Sq00ky's update guide (updating.md) and the release workflow use: the daemon and the
+ * five files of the iDrive plugin (which a release ships inside `Releases.zip`). An older release also shipped a
+ * separate firewall helper (`pf_aa`); since nbt-aad's firewall rules are built into the daemon itself, the app no
+ * longer looks for that file (a leftover one on the head unit is still cleaned up by uninstall, see RemoteLogic).
  */
 object Names {
     const val DAEMON = "nbt-aad"
-    const val FIREWALL = "pf_aa"
     const val CONTAINER = "Releases.zip"
     val PLUGIN = listOf("libNbtAad.so", "NbtAad.manifest", "NbtAad.xml", "NbtAad_ALL_Texts.zip", "NbtAad_ALL_Images.zip")
 
-    /** The 7 files of a complete build, in the order they are shown. */
-    val ALL: List<String> = listOf(DAEMON, FIREWALL) + PLUGIN
+    /** The 6 files of a complete build, in the order they are shown. */
+    val ALL: List<String> = listOf(DAEMON) + PLUGIN
 
     // a browser adds " (1)" to a name that already exists: "nbt-aad (1)", "Releases (2).zip"
     private val COPY_SUFFIX = Regex("""\s*\(\d+\)(?=(\.[^./\\]*)?$)""")
@@ -201,7 +202,7 @@ enum class Kind { BUILD, DAEMON_ONLY, PLUGIN_ONLY, SOME_FILES, NOTHING }
 
 /**
  * The verdict on a set of files: how much of a complete build it is, whether every file looks right, and what it
- * would change on the head unit. A complete release (`nbt-aad` and the five plugin files) is 6 of 7 names, 86 %.
+ * would change on the head unit. A complete release (`nbt-aad` and the five plugin files) is all 6 names, 100 %.
  */
 class BuildPackage(val inspection: Inspection) {
     val payloads: Map<String, Payload> get() = inspection.payloads
@@ -219,7 +220,7 @@ class BuildPackage(val inspection: Inspection) {
         found.isEmpty() -> Kind.NOTHING
         hasDaemon && score >= BUILD_THRESHOLD -> Kind.BUILD
         hasDaemon && pluginFiles.isEmpty() -> Kind.DAEMON_ONLY
-        !hasDaemon && Names.FIREWALL !in inspection.payloads -> Kind.PLUGIN_ONLY
+        !hasDaemon -> Kind.PLUGIN_ONLY
         else -> Kind.SOME_FILES
     }
 
@@ -243,7 +244,7 @@ class BuildPackage(val inspection: Inspection) {
                 continue
             }
             when (n) {
-                Names.DAEMON, Names.FIREWALL -> {
+                Names.DAEMON -> {
                     val e = Elf.parse(b)
                     when {
                         e == null -> bad += "$n is not a program: it does not start like an ELF file."

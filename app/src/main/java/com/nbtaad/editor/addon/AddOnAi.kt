@@ -19,9 +19,8 @@ object AddOnAi {
     /** What the app can do, told to the model so that its verdict is about this app and not about apps in general. */
     private const val CAPABILITIES =
         "What the app CAN do today: install, update or remove files of Sq00ky's NBT-AAD build over SSH (the program " +
-            "`nbt-aad`, the firewall rules program `pf_aa` and the five files of the iDrive plugin NbtAad, with the old " +
-            "ones kept as backups), and edit the settings file `nbt-aad.env`. It can also look inside a zip and list the " +
-            "files.\n" +
+            "`nbt-aad` and the five files of the iDrive plugin NbtAad, with the old ones kept as backups), and edit the " +
+            "settings file `nbt-aad.env`. It can also look inside a zip and list the files.\n" +
             "What the app CANNOT do yet: run a script that comes in a shared file, put files anywhere else than the " +
             "NBT-AAD program folder (/opt/aa) and the plugin folder, change the head unit's own start-up scripts, or " +
             "install any add-on. For a known add-on the app has a recipe only when the file list says so."

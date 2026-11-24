@@ -64,7 +64,7 @@ class InstallLogicTest {
         assertNull(Names.canonical("readme.md"))
         assertTrue(Names.isContainer("Releases (3).zip"))
         assertFalse(Names.isContainer("NbtAad_ALL_Texts.zip"))
-        assertEquals(7, Names.ALL.size)
+        assertEquals(6, Names.ALL.size)
     }
 
     // ---- inspection and the 80 % rule ----
@@ -74,8 +74,8 @@ class InstallLogicTest {
         val p = BuildPackage.of(release())
         assertEquals(Kind.BUILD, p.kind)
         assertEquals(6, p.found.size)
-        assertEquals(listOf("pf_aa"), p.missing)
-        assertEquals(86, p.percent)
+        assertTrue(p.missing.isEmpty())
+        assertEquals(100, p.percent)
         assertEquals("v1.9.91-test", p.version)
         assertTrue(p.fullPlugin)
         assertTrue(p.problems.toString(), p.problems.isEmpty())
@@ -95,24 +95,24 @@ class InstallLogicTest {
 
     @Test
     fun theEightyPercentLine() {
-        // 5 of 7 files (71 %) is below the line: the plugin without pf_aa but also without one text file
-        val five = listOf(SourceFile("nbt-aad", daemon())) + pluginEntries().take(4).map { SourceFile(it.first, it.second) }
-        val p = BuildPackage.of(five)
-        assertEquals(5, p.found.size)
+        // 4 of 6 files (67 %) is below the line: the plugin missing two of its five files
+        val four = listOf(SourceFile("nbt-aad", daemon())) + pluginEntries().take(3).map { SourceFile(it.first, it.second) }
+        val p = BuildPackage.of(four)
+        assertEquals(4, p.found.size)
         assertEquals(Kind.SOME_FILES, p.kind)
-        assertTrue(p.warnings.any { it.contains("5 of 7") })
+        assertTrue(p.warnings.any { it.contains("4 of 6") })
         assertFalse(p.fullPlugin)
         assertTrue(p.installable)
-        // 6 of 7 (86 %) is over the line: a build, even with one plugin file missing
-        val six = five + SourceFile("pf_aa", elf())
-        assertEquals(Kind.BUILD, BuildPackage.of(six).kind)
+        // 5 of 6 (83 %) is over the line: a build, even with one plugin file missing
+        val five = four + SourceFile(pluginEntries()[3].first, pluginEntries()[3].second)
+        assertEquals(Kind.BUILD, BuildPackage.of(five).kind)
     }
 
     @Test
     fun aSingleDaemonIsATestBuild() {
         val p = BuildPackage.of(listOf(SourceFile("nbt-aad (1)", daemon("v2.0.0-x"))))
         assertEquals(Kind.DAEMON_ONLY, p.kind)
-        assertEquals(14, p.percent)
+        assertEquals(17, p.percent)
         assertEquals("v2.0.0-x", p.version)
         assertTrue(p.installable)
     }

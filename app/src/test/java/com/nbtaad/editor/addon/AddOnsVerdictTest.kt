@@ -36,7 +36,6 @@ class AddOnsVerdictTest {
 
     private fun buildEntries(daemon: ByteArray = elf(extra = "NBT-AAD-VERSION=v1.9.82-test")): Array<Pair<String, ByteArray>> = arrayOf(
         "nbt-aad" to daemon,
-        "pf_aa" to elf(),
         "release/libNbtAad.so" to elf(type = 3, qnx = false),
         "NbtAad.manifest" to text("name=NbtAad\n"),
         "NbtAad.xml" to text("<plugin/>"),
@@ -51,12 +50,12 @@ class AddOnsVerdictTest {
         assertTrue(r.installable)
         assertEquals(Recognition.Level.READY, r.level)
         assertTrue(r.verdict, r.verdict.startsWith("Installable now"))
-        assertTrue(r.verdict, r.verdict.contains("7 of 7"))
+        assertTrue(r.verdict, r.verdict.contains("6 of 6"))
         assertEquals("Installable now", r.headline)
         assertTrue(r.answer, r.answer.startsWith("Yes"))
         val b = r.build!!
         assertEquals(100, b.percent)
-        assertEquals(7, b.have.size)
+        assertEquals(6, b.have.size)
         assertTrue(b.missing.isEmpty())
         assertEquals("v1.9.82-test", b.version)
         assertEquals(5, b.pluginHave.size)
@@ -76,10 +75,10 @@ class AddOnsVerdictTest {
 
     @Test
     fun aPartialBuildSaysWhatIsMissing() {
-        val r = AddOns.recognize(ZipSurvey.survey("b.zip", zipOf("nbt-aad" to elf(extra = "NBT-AAD-VERSION=v1.9.82-test"), "pf_aa" to elf())))
+        val r = AddOns.recognize(ZipSurvey.survey("b.zip", zipOf("nbt-aad" to elf(extra = "NBT-AAD-VERSION=v1.9.82-test"))))
         val b = r.build!!
-        assertEquals(29, b.percent)
-        assertEquals(listOf("nbt-aad", "pf_aa"), b.have)
+        assertEquals(17, b.percent)
+        assertEquals(listOf("nbt-aad"), b.have)
         assertEquals(5, b.pluginMissing.size)
         assertTrue(b.pluginHave.isEmpty())
     }

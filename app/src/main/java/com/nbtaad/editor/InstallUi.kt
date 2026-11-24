@@ -906,11 +906,7 @@ private fun PackageCard(inst: InstallController, v: PackageView) {
                     Spacer(Modifier.width(8.dp))
                     Text(n, fontSize = 12.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.width(176.dp))
                     Text(
-                        when {
-                            p == null -> "not included"
-                            n == Names.FIREWALL -> "${ReleaseLogic.mb(p.size.toLong())}, not installed"
-                            else -> ReleaseLogic.mb(p.size.toLong())
-                        },
+                        if (p == null) "not included" else ReleaseLogic.mb(p.size.toLong()),
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -991,10 +987,7 @@ private fun PlanDialog(inst: InstallController, v: PackageView) {
         if (pkg.pluginFiles.isNotEmpty() && !pkg.fullPlugin) {
             append("\n\nThese plugin files are replaced: ${pkg.pluginFiles.joinToString(", ")}. The other plugin files stay as they are.")
         }
-        if (Names.FIREWALL in pkg.payloads) {
-            append("\n\npf_aa is not installed: the firewall rules are built into nbt-aad and are set up once from the iDrive menu.")
-        }
-        append("\n\nThe app stops Android Auto if it still runs, uploads the files under temporary names, checks that they ")
+        append("\n\nThe app stops nbt-aad if it is still running, uploads the files under temporary names, checks that they ")
         append("arrived complete, and only then renames them.")
     }
     AlertDialog(
@@ -1129,7 +1122,7 @@ private fun UninstallDialog(inst: InstallController) {
                             )
                         }
                         Text(
-                            "This is what the app found and would do. It stops Android Auto first.",
+                            "This is what the app found and would do. It stops nbt-aad first.",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
                         )
