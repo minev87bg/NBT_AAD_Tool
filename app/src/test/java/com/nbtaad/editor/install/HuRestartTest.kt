@@ -68,13 +68,16 @@ class HuRestartTest {
     }
 
     @Test
-    fun withoutShutdownTheHmiIsAskedToRestartTheWayTheInstallGuideDoes() {
+    fun onOffDSICommanderIsReportedButNeverRunEvenWithoutShutdown() {
+        // it has locked up a real head unit's screen and SSH together: the job only ever looks for it, never runs it
         fake("OnOffDSICommander", "app-asked")
         val r = run()
-        assertTrue(r.error ?: "", r.success)
-        assertEquals("hmi", r.state["kind"])
-        assertTrue(waitFor(File(root, "app-asked")))
-        assertEquals("appreset", File(root, "app-asked").readText().trim())
+        assertTrue(r.finished)
+        assertFalse(r.success)
+        assertEquals(HuRestart.NO_COMMAND, r.error)
+        assertTrue(r.info.toString(), r.info.any { it.contains("OnOffDSICommander") })
+        Thread.sleep(300)
+        assertFalse("OnOffDSICommander must never be run", File(root, "app-asked").exists())
     }
 
     @Test
@@ -106,6 +109,16 @@ class HuRestartTest {
         assertEquals("full", r.state["kind"])
         assertTrue(waitFor(File(root, "asked")))
         assertEquals("-b", File(root, "asked").readText().trim())
+    }
+
+    @Test
+    fun theHeadUnitsSoftwareVersionIsReadIntoTheReportWhenItIsThere() {
+        fake("shutdown", "asked")
+        File(root, "opt/sys/etc").mkdirs()
+        File(root, "opt/sys/etc/nbt_version.txt").writeText("NBT-EVO 03.18 (2018-03)\nsome other line that is not read\n")
+        val r = run()
+        assertTrue(r.error ?: "", r.success)
+        assertTrue(r.info.toString(), r.info.any { it.contains("NBT-EVO 03.18 (2018-03)") })
     }
 
     @Test

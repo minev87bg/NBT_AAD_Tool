@@ -5,22 +5,33 @@ import com.nbtaad.editor.log.AppLog
 /**
  * Restarts the head unit through its shell, for the car's Android Auto WiFi, where the car's gateway (the way the other
  * reset reaches the head unit) cannot be reached. The job runs in hu-omap's shell like the tile's and the menu look's.
- * It looks in the places a QNX system keeps its commands, and prefers a restart of the whole head unit: `shutdown -b`
- * (some head units name this `sysshutdown` instead; both are tried the same way, under whichever name is actually there).
- * Without either command it uses the one Sq00ky's install guide gives after a plugin is installed, `OnOffDSICommander
- * appreset`, which restarts only the HMI (the iDrive software): the report says which of the two it was (`ST kind full` or
- * `ST kind hmi`), because only a full restart runs the start files again (the tile's boot hook is one). Both are run after a
- * few seconds' delay, so that the report can be read first. Neither command needs to sit in one of the usual places: when
- * it is not, a plain, read-only search of the whole file system (not stopping at the edge of one disk, since `/opt` and
- * the others can each be their own mounted place on a system like this) looks for it by name before giving up. The search
- * proves itself first, against a file already known to be there (the plugin's own program): if that is not found either,
- * the search itself cannot be trusted, and the report says so plainly instead of claiming the two commands are absent
- * when the truth may just be that this shell's `find` cannot be used this way. This costs nothing when the fast check
- * above already found the command. The first try ([wide] false) keeps this search to a sensible depth so it stays quick;
- * when even that finds nothing, a second try with [wide] true drops the depth limit and searches the whole file system,
- * which costs much more time but can still reach a command the first try's depth missed. A head unit with neither
- * command, anywhere a working search can reach, says so, and the person is told to hold the power button, which is what
- * the projects' guides say anyway.
+ * It looks in the places a QNX system keeps its commands, for a restart of the whole head unit: `shutdown -b` (some head
+ * units name this `sysshutdown` instead; both are tried the same way, under whichever name is actually there). This is
+ * run after a few seconds' delay, so that the report can be read first.
+ *
+ * Sq00ky's install guide also mentions `OnOffDSICommander appreset`, which is said to restart only the HMI (the iDrive
+ * software) - but that guide only ever uses it once, by hand, right after a fresh install, in its own particular sequence;
+ * the guide's own routine *update* instructions never use it; they tell the person to hold the power button instead. Tried
+ * here as a general-purpose restart (on a head unit built in March 2018), it has locked up the screen and silently killed
+ * SSH too, with the car's own WiFi the only thing still answering and the power button the only way back - worse than
+ * simply not finding a restart command at all. So it is never run: the job only ever looks for it, to say in the report
+ * that it is there (and, over time, which head units have it), never to use it. If a safe way to restart just the HMI is
+ * ever confirmed - on this head unit's software or another's - it can be added back deliberately; until then, a head unit
+ * without `shutdown`/`sysshutdown` anywhere this search reaches is told to hold the power button, the same as the guide.
+ *
+ * Neither command needs to sit in one of the usual places: when it is not, a plain, read-only search of the whole file
+ * system (not stopping at the edge of one disk, since `/opt` and the others can each be their own mounted place on a
+ * system like this) looks for it by name before giving up. The search proves itself first, against a file already known
+ * to be there (the plugin's own program): if that is not found either, the search itself cannot be trusted, and the
+ * report says so plainly instead of claiming the restart command is absent when the truth may just be that this shell's
+ * `find` cannot be used this way. This costs nothing when the fast check above already found the command. The first try
+ * ([wide] false) keeps this search to a sensible depth so it stays quick; when even that finds nothing, a second try
+ * with [wide] true drops the depth limit and searches the whole file system, which costs much more time but can still
+ * reach a command the first try's depth missed. A head unit with no restart command, anywhere a working search can
+ * reach, says so, and the person is told to hold the power button, which is what the project's guides say anyway. The
+ * report also carries the head unit's own software version (`/opt/sys/etc/nbt_version.txt`, when it is there), read-only
+ * and for the report alone, so that if `OnOffDSICommander` is ever worth trying again, which software versions it was
+ * seen on is already on hand.
  */
 object HuRestart {
     private val places = listOf(
@@ -48,6 +59,8 @@ object HuRestart {
             S=¤{1:-$stage}
             exec > ¤S/out 2>&1
             echo "JOB restart"
+            VER=¤(head -1 ¤R/opt/sys/etc/nbt_version.txt 2>/dev/null)
+            [ -n "¤VER" ] && echo "INFO head unit software: ¤VER"
             CMD=""
             CMDNAME=""
             APP=""
@@ -58,13 +71,13 @@ object HuRestart {
                   if [ -z "¤CMD" ]; then CMD=¤R¤d/¤n; CMDNAME=¤n; fi
                 fi
               done
-              if [ -f ¤R¤d/OnOffDSICommander ]; then
-                echo "INFO OnOffDSICommander is in ¤d"
-                [ -z "¤APP" ] && APP=¤R¤d/OnOffDSICommander
+              if [ -z "¤APP" ] && [ -f ¤R¤d/OnOffDSICommander ]; then
+                APP=¤R¤d/OnOffDSICommander
+                echo "INFO OnOffDSICommander is in ¤d (not used: it has locked up a head unit's screen and SSH together, with the power button the only way back)"
               fi
             done
             SEARCHOK=""
-            if [ -z "¤CMD" ] || [ -z "¤APP" ]; then
+            if [ -z "¤CMD" ]; then
               PROOF=¤(find ¤R/opt -maxdepth 3 -type f -name nbt-aad 2>/dev/null | head -1)
               [ -n "¤PROOF" ] && SEARCHOK=yes
               echo "INFO a wider search's own test (looking for the plugin's own program, already known to be in ¤R/opt/aa) found [¤PROOF], so the search itself ¤([ -n "¤SEARCHOK" ] && echo can || echo cannot) be trusted here"
@@ -77,10 +90,6 @@ object HuRestart {
                 case "¤F" in *sysshutdown) CMDNAME=sysshutdown ;; *) CMDNAME=shutdown ;; esac
               fi
             fi
-            if [ -z "¤APP" ] && [ -n "¤SEARCHOK" ]; then
-              F=¤(find ¤R/ $depthArg -type f -name OnOffDSICommander 2>/dev/null | head -1)
-              if [ -n "¤F" ]; then echo "INFO OnOffDSICommander found by a wider search, at ¤F"; APP=¤F; fi
-            fi
             if [ -n "¤CMD" ]; then
               ( trap '' 1; sleep $delaySeconds; ¤CMD -b ) < /dev/null > /dev/null 2>&1 &
               echo "ST kind full"
@@ -88,12 +97,9 @@ object HuRestart {
               echo "END 0"
               exit 0
             fi
-            if [ -n "¤APP" ]; then
-              ( trap '' 1; sleep $delaySeconds; ¤APP appreset ) < /dev/null > /dev/null 2>&1 &
-              echo "ST kind hmi"
-              echo "OK the head unit's HMI is asked to restart in $delaySeconds seconds (OnOffDSICommander appreset)"
-              echo "END 0"
-              exit 0
+            if [ -z "¤APP" ] && [ -n "¤SEARCHOK" ]; then
+              F=¤(find ¤R/ $depthArg -type f -name OnOffDSICommander 2>/dev/null | head -1)
+              [ -n "¤F" ] && echo "INFO OnOffDSICommander found by a wider search, at ¤F (not used, for the same reason)"
             fi
             if [ -n "¤SEARCHOK" ]; then
               for n in reboot poweroff halt; do
@@ -108,7 +114,7 @@ object HuRestart {
         )
     }
 
-    const val NO_COMMAND = "This head unit's shell has no restart command (shutdown, sysshutdown or OnOffDSICommander) anywhere this search reached, so it cannot be restarted from here. Hold the power button for 30 seconds instead."
+    const val NO_COMMAND = "This head unit's shell has no restart command (shutdown or sysshutdown) anywhere this search reached, so it cannot be restarted from here. Hold the power button for 30 seconds instead."
 
     /**
      * Asks the head unit at [host] to restart. A report with an `error` says why it was not asked; an exception, that
