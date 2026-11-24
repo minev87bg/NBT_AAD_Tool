@@ -76,6 +76,21 @@ object Internet {
         throw last ?: IOException("No network with internet")
     }
 
+    /**
+     * A quick, local check for whether the phone looks like it has a network with internet right now: no request is
+     * sent anywhere. For a periodic background check (an app update, say), this is what decides whether to even try,
+     * so a phone that is plainly offline does not show "Checking…" every time only to quietly fail a moment later.
+     * A network that looks fine can still not truly have internet (a captive portal, say): [run] is what actually
+     * finds that out, by trying the request and falling back the same way it always does.
+     */
+    fun hasConnectivity(ctx: Context): Boolean {
+        val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        if (internetNetworks(cm).isNotEmpty()) return true
+        val def = try { cm.activeNetwork } catch (e: Exception) { null } ?: return false
+        val caps = try { cm.getNetworkCapabilities(def) } catch (e: Exception) { null } ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
     private fun internetNetworks(cm: ConnectivityManager): List<Network> {
         @Suppress("DEPRECATION")
         val all = cm.allNetworks.toList()

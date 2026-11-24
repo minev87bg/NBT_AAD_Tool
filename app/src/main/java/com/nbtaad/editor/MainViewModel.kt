@@ -46,6 +46,7 @@ import com.nbtaad.editor.net.CatalogSync
 import com.nbtaad.editor.net.DetectResult
 import com.nbtaad.editor.net.EnvRemote
 import com.nbtaad.editor.net.Hsfz
+import com.nbtaad.editor.net.Internet
 import com.nbtaad.editor.net.NetworkBinder
 import com.nbtaad.editor.net.PortProbe
 import com.nbtaad.editor.net.PortState
@@ -70,6 +71,9 @@ enum class Screen { HUB, OPTIONS, INSTALL, EXPERIMENTAL, CONTRIBUTE, WIZARD, TIL
 enum class UpdatePhase { IDLE, CHECKING, CURRENT, AVAILABLE, DOWNLOADING, FAILED }
 enum class SaveStatus { RUNNING, OK, FAIL }
 enum class LineKind { INFO, OK, ERROR }
+
+/** How often [MainViewModel.checkUpdate] repeats itself in the background while the app is open. */
+private const val UPDATE_CHECK_INTERVAL_MS = 10 * 60 * 1000L
 
 data class DetectState(
     val carFound: Boolean = false,
@@ -384,9 +388,32 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var updateOffer by mutableStateOf<UpdateOffer?>(null)
     var updateProgress by mutableStateOf(0f)
 
+    /** The tag of the last offer the person closed the popup on, so the same version does not keep popping back up. */
+    private var updateDialogDismissedFor by mutableStateOf<String?>(null)
+
+    /**
+     * A new version is ready and the person has not already closed the popup for this exact one: show it. Covers the
+     * download and a failed attempt too, so the popup stays up through the whole thing instead of vanishing the moment
+     * something goes wrong; a failure of the background check itself (no [updateOffer]) does not pop anything up.
+     */
+    val showUpdateDialog: Boolean
+        get() = updateOffer != null &&
+            updatePhase in setOf(UpdatePhase.AVAILABLE, UpdatePhase.DOWNLOADING, UpdatePhase.FAILED) &&
+            updateOffer?.tag != updateDialogDismissedFor
+
+    fun dismissUpdateDialog() {
+        updateDialogDismissedFor = updateOffer?.tag
+    }
+
     // after the properties above: initializers and init blocks run in the order they are written
     init {
         checkUpdate()
+        viewModelScope.launch {
+            while (isActive) {
+                delay(UPDATE_CHECK_INTERVAL_MS)
+                checkUpdate()
+            }
+        }
     }
 
     /** "Updated to version X." for 15 minutes after Android replaced this app with a newer version, else empty. */
@@ -403,12 +430,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** What the system installer answered after the file was handed over (cancelled, refused, done). */
     val installMessage: String? get() = InstallEvents.message
 
-    /** Looks for a newer release on GitHub. Needs internet; with none it stays quiet (the settings sync says so). */
+    /**
+     * Looks for a newer release on GitHub, including the repeat check every [UPDATE_CHECK_INTERVAL_MS]. Needs
+     * internet; with none it stays quiet and does not even start (no "Checking…" flash every ten minutes while the
+     * phone is plainly offline) - the settings sync line already says so elsewhere. While the popup for an offer
+     * already found is up, a repeat check is skipped too: there is nothing new to learn and no reason to disturb it.
+     */
     fun checkUpdate() {
         if (updatePhase == UpdatePhase.CHECKING || updatePhase == UpdatePhase.DOWNLOADING) return
+        if (showUpdateDialog) return
+        if (!Internet.hasConnectivity(ctx)) return
         updatePhase = UpdatePhase.CHECKING
         updateMessage = "Checking for a new version…"
-        updateOffer = null
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 when (val r = Updater.check(ctx)) {
@@ -420,6 +453,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     }
                     is Check.Current -> {
                         AppLog.i("Update", "The app is up to date (${r.installed.name})")
+                        updateOffer = null
                         updatePhase = UpdatePhase.CURRENT
                         updateMessage = "The app is up to date (version ${r.installed.name})."
                     }

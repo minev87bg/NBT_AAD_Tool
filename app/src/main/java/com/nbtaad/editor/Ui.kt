@@ -129,6 +129,7 @@ fun App(vm: MainViewModel) {
         if (vm.showLog) AppLogDialog(vm)
         if (vm.askDongle) DongleDialog(vm)
         if (vm.connectDialog) ConnectAgainDialog(vm)
+        if (vm.showUpdateDialog) UpdateAvailableDialog(vm)
     }
 }
 
@@ -344,6 +345,60 @@ internal fun UpdateBanner(vm: MainViewModel) {
         )
         Button(onClick = { vm.startUpdate() }, modifier = Modifier.padding(top = 4.dp)) { Text("Update App") }
     }
+}
+
+/**
+ * A new version is ready: shown as a popup (gated by [MainViewModel.showUpdateDialog]) so it is not missed on the Hub
+ * page further down, instead of only the quiet [UpdateBanner] down there. Stays up through the download and a failed
+ * attempt, so pressing UPDATE does not look like it closed the dialog for no reason; "Later" leaves it for next time,
+ * in the banner.
+ */
+@Composable
+internal fun UpdateAvailableDialog(vm: MainViewModel) {
+    val offer = vm.updateOffer ?: return
+    val busy = vm.updatePhase == UpdatePhase.DOWNLOADING
+    val failed = vm.updatePhase == UpdatePhase.FAILED
+    AlertDialog(
+        onDismissRequest = { if (!busy) vm.dismissUpdateDialog() },
+        title = { Text("Update available") },
+        text = {
+            Column(Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState())) {
+                Text(
+                    offer.title.takeIf { it.isNotBlank() && it != offer.tag }?.let { "${offer.tag} — $it" } ?: offer.tag,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    "Installed: v${vm.appVersion}",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+                if (offer.notes.isNotBlank()) {
+                    Text(offer.notes, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+                }
+                if (busy) {
+                    Spacer(Modifier.height(10.dp))
+                    Text(vm.updateMessage, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                    LinearProgressIndicator(progress = { vm.updateProgress }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
+                } else if (failed) {
+                    Text(vm.updateMessage, fontSize = 12.sp, color = Amber, modifier = Modifier.padding(top = 10.dp))
+                } else {
+                    Text(
+                        "While it updates, the app closes. Open it again afterwards, the new version is then ready.",
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(top = 10.dp),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            if (!busy) TextButton(onClick = { vm.startUpdate() }) { Text(if (failed) "Try again" else "Update") }
+        },
+        dismissButton = {
+            if (!busy) TextButton(onClick = { vm.dismissUpdateDialog() }) { Text("Later") }
+        },
+    )
 }
 
 @Composable
