@@ -292,6 +292,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * The windows clear it when they close, and the reset stops writing to it then.
      */
     var resetNote by mutableStateOf<String?>(null)
+
+    /**
+     * True right after a reset through the head unit's shell (no gateway on the car's own Android Auto WiFi) failed
+     * because the normal, depth-limited search found no restart command: a slower, whole-file-system search can still
+     * find one, so the retry button offers that instead of simply repeating the same attempt. False again once that
+     * slower search itself is tried (there is nothing more to escalate to) or a reset through the gateway is in play.
+     */
+    var resetCanTryHarder by mutableStateOf(false)
     var askDraft by mutableStateOf(false)
     var manualDialog by mutableStateOf(false)
     private var pollJob: Job? = null
@@ -708,12 +716,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * Reset the head unit through the ZGW (no SSH), then keep checking until SSH opens. The car is scanned again
      * first, so the reset goes to the gateway as it is now (the addresses of an earlier scan may be old); only when
      * the scan finds nothing, the address that was known is tried. [fromWindow]: it was started from a result
-     * window, which shows the progress as [resetNote] instead of the shared feedback line.
+     * window, which shows the progress as [resetNote] instead of the shared feedback line. [wide]: a retry of a
+     * head-unit-shell reset whose normal search found no restart command, this time with the slower, whole-file-system
+     * search (see [HuRestart]); has no effect when the gateway is reachable, since that path does not search for anything.
      */
-    fun resetHeadUnit(fromWindow: Boolean = false) {
+    fun resetHeadUnit(fromWindow: Boolean = false, wide: Boolean = false) {
         pollJob?.cancel()
         resetting = true
         feedbackError = false
+        resetCanTryHarder = false
         resetNote = if (fromWindow) "Looking for the vehicle…" else null
         fun note(text: String) { if (resetNote != null) resetNote = text }
         feedback = "Looking for the vehicle…"
@@ -734,7 +745,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 val shellHost = scan.huIp
                 if (gw == null && scan.sshOpen && shellHost != null) {
                     // the car's own WiFi has no gateway to send to, but the head unit's shell answers: it is asked to restart
-                    restartThroughShell(shellHost, ::note)
+                    restartThroughShell(shellHost, ::note, wide)
                     return@launch
                 }
                 if (gw == null) {
@@ -793,15 +804,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /**
      * Asks the head unit's shell to restart (the gateway is out of reach on the car's Android Auto WiFi) and follows it: the
      * SSH answer has to go away, which shows that it restarted, and come back, which needs Android Auto to be connected again.
+     * [wide] asks [HuRestart] for the slower, whole-file-system search instead of the normal depth-limited one.
      */
-    private suspend fun CoroutineScope.restartThroughShell(host: String, note: (String) -> Unit) {
-        feedback = "Asking the head unit to restart…"
-        note("Asking the head unit to restart…")
-        val r = HuRestart.ask(host)
+    private suspend fun CoroutineScope.restartThroughShell(host: String, note: (String) -> Unit, wide: Boolean = false) {
+        feedback = if (wide) "Asking the head unit to restart (a slower, more thorough search this time)…" else "Asking the head unit to restart…"
+        note(feedback)
+        val r = HuRestart.ask(host, wide)
         if (r.error != null) {
             feedbackError = true
             feedback = r.error
             note(r.error)
+            // the normal search found nothing, but a slower one that looks everywhere still might: offer that as the retry
+            resetCanTryHarder = !wide
             return
         }
         if (r.state["kind"] == "hmi") {
@@ -914,7 +928,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 if (!zgwOk) {
                     val shellHost = scan.huIp ?: detect.hu
                     if (shellHost != null) {
-                        val r = HuRestart.ask(shellHost)
+                        var r = HuRestart.ask(shellHost)
+                        if (r.error != null) {
+                            // the normal, depth-limited search found nothing: this window tries every method there is,
+                            // so it goes on to the slower, whole-file-system search itself rather than stopping here
+                            log("Restart through SSH", false, "${r.error} Trying a slower, more thorough search…")
+                            r = HuRestart.ask(shellHost, wide = true)
+                        }
                         sshOk = r.error == null
                         log("Restart through SSH", sshOk, r.error ?: (r.ok + r.info).lastOrNull() ?: "Asked.")
                     } else {

@@ -28,9 +28,9 @@ class HuRestartTest {
         if (this::root.isInitialized) root.deleteRecursively()
     }
 
-    private fun run(): TileScripts.Report {
+    private fun run(wide: Boolean = false): TileScripts.Report {
         val f = File(root, "stage/job.sh")
-        f.writeText(HuRestart.job(root = root.path, stage = File(root, "stage").path, delaySeconds = 0))
+        f.writeText(HuRestart.job(root = root.path, stage = File(root, "stage").path, delaySeconds = 0, wide = wide))
         ProcessBuilder("/bin/sh", f.path).redirectInput(ProcessBuilder.Redirect.from(File("/dev/null")))
             .redirectOutput(ProcessBuilder.Redirect.to(File("/dev/null"))).redirectError(ProcessBuilder.Redirect.to(File("/dev/null")))
             .start().waitFor()
@@ -96,5 +96,39 @@ class HuRestartTest {
         assertEquals(HuRestart.NO_COMMAND, r.error)
         assertTrue(HuRestart.NO_COMMAND.contains("power button"))
         assertTrue(r.state["kind"] == null)
+    }
+
+    @Test
+    fun sysshutdownIsRecognisedTheSameWayAsShutdown() {
+        fake("sysshutdown", "asked")
+        val r = run()
+        assertTrue(r.error ?: "", r.success)
+        assertEquals("full", r.state["kind"])
+        assertTrue(waitFor(File(root, "asked")))
+        assertEquals("-b", File(root, "asked").readText().trim())
+    }
+
+    @Test
+    fun aWiderSearchReachesPastTheNormalDepthLimitButCostsMore() {
+        // the plugin's own program, so the search's self-test passes
+        File(root, "opt/aa").mkdirs()
+        File(root, "opt/aa/nbt-aad").writeText("x")
+        // a shutdown command buried well past the normal search's depth limit, and not in any of the usual places
+        var deep = File(root, "deep")
+        repeat(10) { deep = File(deep, "d") }
+        deep.mkdirs()
+        val cmd = File(deep, "shutdown")
+        cmd.writeText("#!/bin/sh\necho \"\$@\" > ${root.path}/asked\n")
+        cmd.setExecutable(true)
+
+        val narrow = run(wide = false)
+        assertFalse(narrow.success)
+        assertEquals(HuRestart.NO_COMMAND, narrow.error)
+
+        val wide = run(wide = true)
+        assertTrue(wide.error ?: "", wide.success)
+        assertEquals("full", wide.state["kind"])
+        assertTrue(waitFor(File(root, "asked")))
+        assertEquals("-b", File(root, "asked").readText().trim())
     }
 }
