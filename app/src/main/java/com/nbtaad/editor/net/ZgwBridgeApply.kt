@@ -15,6 +15,11 @@ package com.nbtaad.editor.net
  *    dhcpd's own `-t` syntax check on the candidate passes first. If it fails, the real file is never touched and
  *    the (unused) backup stays as a harmless record. This part is genuinely low-risk: a small text file write,
  *    syntax-validated before it goes anywhere near the live path, with an automatic backup.
+ *    A real run caught one bug here: this shell's `date` doesn't understand `+%s` and just echoes the literal
+ *    token back (exit 0, so a plain `|| echo unknown` fallback never fires) - meaning every backup was landing at
+ *    the exact same literal path `....conf.bak.%s`, which would silently overwrite the one clean backup on a
+ *    second write. Fixed by validating the output is actually all-digits (`case ... ''|*[!0-9]*)`) and falling
+ *    back to the shell's own PID (`$$`) - always numeric, always available, no dependency on `date` at all.
  *
  * 2. Restarting dhcpd so it actually notices the new file - deliberately NOT done here. ISC dhcpd doesn't reliably
  *    hot-reload, so making this edit "live" means either (a) killing and relaunching the running dhcpd process over
@@ -40,7 +45,8 @@ object ZgwBridgeApply {
      */
     fun writeRoute(host: String): String {
         val script = """
-            TS=${'$'}(date +%s 2>/dev/null || echo unknown)
+            TS=${'$'}(date +%s 2>/dev/null)
+            case "${'$'}TS" in ''|*[!0-9]*) TS=${'$'}${'$'} ;; esac
             BAK="$CONF.bak.${'$'}TS"
             echo "== backing up the real config =="
             cp $CONF "${'$'}BAK" 2>&1
