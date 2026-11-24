@@ -1048,6 +1048,40 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // =====================================================================
+    // Network info (read-only): whatever SSH connection is open right now, is the head unit also sitting
+    // on the vehicle's own ZGW network? Nothing here writes to, starts, or changes anything on the head
+    // unit - see NetDiag's own doc comment for what is actually read and why.
+    // =====================================================================
+
+    var netDiagBusy by mutableStateOf(false)
+    var netDiagText by mutableStateOf<String?>(null)
+    var showNetDiag by mutableStateOf(false)
+
+    fun checkNetworking() {
+        if (netDiagBusy) return
+        netDiagBusy = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                NetworkBinder.bindToLocalNetwork(ctx)
+                val r = detectCarSsh { feedback = it }
+                applyResult(r)
+                val host = r.huIp ?: detect.hu
+                netDiagText = if (host != null) {
+                    com.nbtaad.editor.net.NetDiag.run(host)
+                } else {
+                    "No head unit found to connect to. Connect first, then try again."
+                }
+            } catch (e: Exception) {
+                AppLog.e("NetDiag", "Reading the head unit's networking failed", e)
+                netDiagText = "Failed: ${friendlyError(e)}"
+            } finally {
+                netDiagBusy = false
+                showNetDiag = true
+            }
+        }
+    }
+
+    // =====================================================================
     // Writing coding: the owner's own recovered keys, a mandatory backup, then a signed write
     // =====================================================================
 
