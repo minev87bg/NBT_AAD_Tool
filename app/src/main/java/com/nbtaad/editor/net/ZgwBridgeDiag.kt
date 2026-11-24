@@ -37,6 +37,13 @@ package com.nbtaad.editor.net
  *
  * Nothing here starts, stops, or restarts any daemon, and nothing here writes to any file under /var/opt/conn
  * itself - only to a scratch copy under /tmp that it deletes in the same command.
+ *
+ * Also lists the whole /var/opt/conn directory, not just the one config file - added after a real run of
+ * ZgwBridgeApply.revertRoute() reported "no backup found" and it was only visible, after the fact, in the app's
+ * own exec log that this was actually a missing-`head` problem (ls -t ... | head -1 failing outright on this
+ * shell) rather than the backup genuinely being gone. A full listing here means that distinction - a backup file
+ * that's really not there, versus one sitting right there that a command just failed to find - is visible
+ * directly, without having to read the app's own log to work it out.
  */
 object ZgwBridgeDiag {
     private val script = """
@@ -45,6 +52,9 @@ object ZgwBridgeDiag {
         echo
         echo "== its age/size (how long since it was last written) =="
         ls -la /var/opt/conn/dhcpd.uap0.conf 2>&1
+        echo
+        echo "== everything in /var/opt/conn right now (backups included, if any) =="
+        ls -la /var/opt/conn/ 2>&1
         echo
         echo "== active leases on uap0 right now (and the lease time they were granted for) =="
         cat /var/opt/conn/dhcpd.uap0.leases 2>&1

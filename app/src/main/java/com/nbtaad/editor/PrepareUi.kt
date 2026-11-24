@@ -172,6 +172,15 @@ fun PrepareScreen(vm: MainViewModel) {
             }
             if (vm.zgwApplyBusy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
 
+            // Second, independent fallback for REVERT having no backup to work from - writes this head unit's
+            // own verified-clean content back directly instead of restoring a copy of anything.
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { vm.confirmZgwRestoreClean = true },
+                enabled = !vm.zgwApplyBusy,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("RESTORE KNOWN-CLEAN BASELINE (NO BACKUP NEEDED)") }
+
             // The one held-back action: actually restarting dhcpd. Its own confirmation, worded differently
             // from WRITE/REVERT above, since this is the same risk category as the SSH-based restarts that
             // have hung this head unit before - see ZgwBridgeApply's doc comment.
@@ -358,6 +367,29 @@ fun PrepareScreen(vm: MainViewModel) {
                 }) { Text("REVERT") }
             },
             dismissButton = { TextButton(onClick = { vm.confirmZgwRevert = false }) { Text("CANCEL") } },
+        )
+    }
+
+    if (vm.confirmZgwRestoreClean) {
+        AlertDialog(
+            onDismissRequest = { vm.confirmZgwRestoreClean = false },
+            title = { Text("Restore the known-clean baseline?") },
+            text = {
+                Text(
+                    "Backs up whatever is currently in dhcpd.uap0.conf, then writes this head unit's own " +
+                        "verified-clean content back directly - not a copy of any backup, so this works even if " +
+                        "REVERT finds none. Only swaps it in if dhcpd's own syntax check passes first. Does not " +
+                        "restart the DHCP service.",
+                    fontSize = 13.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.confirmZgwRestoreClean = false
+                    vm.restoreZgwKnownClean()
+                }) { Text("RESTORE") }
+            },
+            dismissButton = { TextButton(onClick = { vm.confirmZgwRestoreClean = false }) { Text("CANCEL") } },
         )
     }
 

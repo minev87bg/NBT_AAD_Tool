@@ -1129,6 +1129,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var showZgwApply by mutableStateOf(false)
     var confirmZgwWrite by mutableStateOf(false)
     var confirmZgwRevert by mutableStateOf(false)
+    var confirmZgwRestoreClean by mutableStateOf(false)
 
     fun writeZgwRoute() {
         if (zgwApplyBusy) return
@@ -1170,6 +1171,33 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
             } catch (e: Exception) {
                 AppLog.e("ZgwBridgeApply", "Reverting dhcpd's config failed", e)
+                zgwApplyText = "Failed: ${friendlyError(e)}"
+            } finally {
+                zgwApplyBusy = false
+                showZgwApply = true
+            }
+        }
+    }
+
+    // A second, independent fallback for when REVERT has no backup to work from (or as an extra-sure
+    // alternative to it): writes this head unit's own verified-clean content back directly, rather than
+    // restoring a copy of anything. See ZgwBridgeApply's doc comment for why this exists.
+    fun restoreZgwKnownClean() {
+        if (zgwApplyBusy) return
+        zgwApplyBusy = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                NetworkBinder.bindToLocalNetwork(ctx)
+                val r = detectCarSsh { feedback = it }
+                applyResult(r)
+                val host = r.huIp ?: detect.hu
+                zgwApplyText = if (host != null) {
+                    com.nbtaad.editor.net.ZgwBridgeApply.restoreKnownClean(host)
+                } else {
+                    "No head unit found to connect to. Connect first, then try again."
+                }
+            } catch (e: Exception) {
+                AppLog.e("ZgwBridgeApply", "Restoring the known-clean baseline failed", e)
                 zgwApplyText = "Failed: ${friendlyError(e)}"
             } finally {
                 zgwApplyBusy = false
