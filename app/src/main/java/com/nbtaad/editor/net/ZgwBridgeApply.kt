@@ -1,79 +1,101 @@
 package com.nbtaad.editor.net
 
 /**
- * DRAFT ONLY - not called from anywhere, not reachable from any button. This is the planned shape of the actual
- * mutating step (the one real write in this whole effort), written out now so it can be read and reasoned about
- * before it is finished, rather than appearing fully formed later.
+ * The real write step - test branch only, gated behind its own separate, explicitly-confirmed action, never
+ * folded into the existing reset flow. See ZgwBridgeDiag's doc comment for the background and the dry run this
+ * was built from, and the conversation itself for why this is split the way it is.
  *
- * Updated against a real run (ZgwBridgeDiag.run against the actual car). Two things changed from the first draft:
+ * Confirmed against the real car (not a guess): this dhcpd build (isc-dhcpd-4.1-ESV-R3) parses the corrected
+ * two-line candidate cleanly. What's below reuses that exact, already-dry-run-tested insertion logic, but now
+ * aimed at the real file instead of a /tmp scratch copy.
  *
- * - The naive one-line edit does not work on this car's dhcpd build (`isc-dhcpd-4.1-ESV-R3`, a vendor-frozen
- *   2011-era release): it does not predefine the symbolic option name `rfc3442-classless-static-routes`. The real
- *   edit is two lines, not one - see step 2.
- * - The real file opens with "File generated automatically - Do not edit", and its own timestamp sat minutes behind
- *   an active lease renewal - evidence something regenerates it around when the AA WiFi service (re)starts, not
- *   only once at the factory. That bears directly on the open "does it stay forever" question from conversation:
- *   whatever this writes may not need an explicit revert to disappear - the car may already be in the habit of
- *   putting this file back to its own default on its own schedule. Still unconfirmed exactly what triggers that
- *   regeneration (every boot? only a WiFi-settings change?) - worth treating as a welcome safety net, not a
- *   substitute for step 4's own explicit revert, until that trigger is actually pinned down.
+ * Deliberately split into two concerns that are NOT both done here:
  *
- * The real file, as read:
- *     # !! File generated automatically !!
- *     # !! Do not edit !!
+ * 1. writeRoute() - backs up the real file, builds the candidate, and ONLY swaps it in (atomically, via `mv`) if
+ *    dhcpd's own `-t` syntax check on the candidate passes first. If it fails, the real file is never touched and
+ *    the (unused) backup stays as a harmless record. This part is genuinely low-risk: a small text file write,
+ *    syntax-validated before it goes anywhere near the live path, with an automatic backup.
  *
- *     authoritative;
- *     max-lease-time 259200;
- *     default-lease-time 259200;
- *     ddns-update-style none;
- *     subnet 172.16.224.0 netmask 255.255.255.0 {
- *        option routers 0.0.0.0;
- *        option domain-name-servers 172.16.224.1;
- *        range 172.16.224.100 172.16.224.254;
- *     }
- * (worth noting in passing: `option routers 0.0.0.0` is BMW deliberately telling connecting phones "no default
- * gateway here" - consistent with NetDiag's own finding that AA WiFi never offers one. This plan doesn't touch that
- * line or restore a general gateway; it adds one specific, narrowly-scoped route to one specific /16, which is a
- * different and much smaller claim than "give phones a way out to the internet via the car".)
+ * 2. Restarting dhcpd so it actually notices the new file - deliberately NOT done here. ISC dhcpd doesn't reliably
+ *    hot-reload, so making this edit "live" means either (a) killing and relaunching the running dhcpd process over
+ *    this same SSH connection, or (b) relying on whatever already rewrites this file every 20-30 minutes in this
+ *    car's own observed behavior (twice now, each time in sync with a phone's lease renewing) to also be the thing
+ *    that restarts dhcpd itself, and just waiting for that. Option (a) is the same category of action - killing and
+ *    relaunching a running process on this head unit over SSH - as the `sysshutdown`/`OnOffDSICommander` methods
+ *    that have already hung this exact head unit twice. That doesn't make it certain to fail here too (dhcpd is a
+ *    small, simple daemon, not the whole HMI), but it's close enough in kind that it deserves its own explicit
+ *    decision rather than being silently bundled in alongside the much safer file-write step. Not wired up either
+ *    way yet.
  *
- * The mechanism, in order:
- *
- * 1. BACK UP. Copy the real file to a timestamped sibling (`dhcpd.uap0.conf.bak.<unix time>`) before touching
- *    anything. Never skipped, never optional - what makes every other step here reversible by one `cp` back.
- *
- * 2. INSERT TWO LINES, not one:
- *        option rfc3442-classless-static-routes code 121 = array of integer 8;      <- after "ddns-update-style none;"
- *        option rfc3442-classless-static-routes 16, 192, 168, 172, 16, 224, 1;      <- after "option domain-name-servers ...;", inside the subnet block
- *    Line 1 teaches this old dhcpd build the option by name (plain, portable ISC dhcpd grammar - not a hack, and
- *    confirmed harmless to redeclare even on builds that already know the name, per a local test against a newer
- *    dhcpd build). Line 2 is the actual RFC 3442 payload: "16" = /16 prefix, "192, 168" = the destination network
- *    (192.168.0.0/16, already covering ZGW's 192.168.0.8 per NetDiag), "172, 16, 224, 1" = the gateway to send it to
- *    (the head unit's own uap0 address - "send it to me"). The head unit does the rest on its own: forwarding is
- *    already globally on, and its wired side already has that whole /16 on-link.
- *    ZgwBridgeDiag's own dry-run test builds exactly this candidate (by reading the real file line-by-line and
- *    inserting after these same two anchor lines) and syntax-checks it with `dhcpd -t` against a /tmp scratch copy
- *    - the real edit should reuse that same insertion logic verbatim rather than duplicating it by hand.
- *
- * 3. MAKE IT TAKE EFFECT. ISC dhcpd does not reliably hot-reload a config change - the running process needs to
- *    re-read the file, which in practice means restarting it. Its PID is recoverable from `/tmp/dhcpd.pid.uap0`
- *    (the `-pf` path NetDiag's pidin dump showed it started with). Plan: read that PID, stop it, then re-run the
- *    EXACT command line pidin showed it running with -
- *        dhcpd -f -d -cf /var/opt/conn/dhcpd.uap0.conf -lf /var/opt/conn/dhcpd.uap0.leases -pf /tmp/dhcpd.pid.uap0 uap0
- *    (backgrounded) - deliberately not assuming a supervisor restarts it automatically, since that's unconfirmed.
- *    This is the one moment of disruption: a phone mid-lease-renewal on uap0 right then could see a brief drop, on
- *    the order of a small text file being re-read and a socket re-bound - well under the multi-minute hangs the
- *    SSH-based restarts have caused, but not literally zero. The 3-day default/max lease time (259200s) means a
- *    phone that's been continuously associated for a while won't naturally re-ask for a while either - in practice
- *    AA WiFi connections are re-established most drives, so this is likely a non-issue, but not a guarantee.
- *
- * 4. REVERT (the other half of the plan - see the open "ephemeral vs permanent" question from conversation, and the
- *    auto-regeneration evidence above). Copy the backup back over the live file and repeat step 3's restart.
- *    Whether this runs automatically right after each ZGW-reset use, or is left for the car's own regeneration to
- *    clean up, is a product decision, not a technical one - both are the same shell, just a different trigger.
- *
- * None of this runs yet. It gets wired to its own clearly-labeled, separately confirmed action - not folded
- * invisibly into the existing reset button - once there's agreement on the ephemeral-vs-permanent question above.
+ * revertRoute() is the undo for writeRoute() only - it restores the most recent backup. It does not touch dhcpd
+ * either, for the same reason.
  */
 object ZgwBridgeApply {
-    // Intentionally empty for now - see doc comment above.
+    private const val CONF = "/var/opt/conn/dhcpd.uap0.conf"
+
+    /**
+     * Backs up [CONF], builds the corrected candidate from that backup (same two insertion points ZgwBridgeDiag's
+     * dry run already proved), and swaps it in only if `dhcpd -t` accepts the candidate. Throws (does not catch)
+     * if the SSH connection itself fails - same convention as every other direct SSH call in this package.
+     */
+    fun writeRoute(host: String): String {
+        val script = """
+            TS=${'$'}(date +%s 2>/dev/null || echo unknown)
+            BAK="$CONF.bak.${'$'}TS"
+            echo "== backing up the real config =="
+            cp $CONF "${'$'}BAK" 2>&1
+            ls -la "${'$'}BAK" 2>&1
+            echo
+            echo "== building the corrected candidate from that backup =="
+            rm -f $CONF.new 2>&1
+            while IFS= read -r zgwline; do
+              echo "${'$'}zgwline" >> $CONF.new
+              case "${'$'}zgwline" in
+                "ddns-update-style none;")
+                  echo "option rfc3442-classless-static-routes code 121 = array of integer 8;" >> $CONF.new
+                  ;;
+                "   option domain-name-servers 172.16.224.1;")
+                  echo "   option rfc3442-classless-static-routes 16, 192, 168, 172, 16, 224, 1;" >> $CONF.new
+                  ;;
+              esac
+            done < "${'$'}BAK"
+            echo "-- syntax check on the candidate before it goes anywhere near the real file --"
+            if dhcpd -t -cf $CONF.new 2>&1; then
+              mv $CONF.new $CONF 2>&1
+              echo
+              echo "SWAPPED IN. Backup kept at ${'$'}BAK."
+              echo "dhcpd itself was NOT restarted or signalled - the running process still has the OLD config in"
+              echo "memory until it re-reads the file on its own, or is told to. This is deliberate - see the"
+              echo "doc comment on ZgwBridgeApply for why that step is being held back on purpose."
+            else
+              echo
+              echo "ABORTED: the candidate failed its own syntax check. The real file was never touched."
+              echo "The backup at ${'$'}BAK is harmless and unused - safe to ignore or delete."
+              rm -f $CONF.new 2>&1
+            fi
+        """.trimIndent()
+        val out = SshSession(host).use { ssh -> ssh.exec(script, timeoutMs = 20_000).text }
+        return "Read/written over SSH from $host.\n\n" + out.trimEnd() + "\n"
+    }
+
+    /**
+     * Restores the most recent `writeRoute()` backup over [CONF]. Does not touch dhcpd, for the same reason
+     * `writeRoute()` doesn't. Throws (does not catch) if the SSH connection itself fails.
+     */
+    fun revertRoute(host: String): String {
+        val script = """
+            BAK=${'$'}(ls -t $CONF.bak.* 2>/dev/null | head -1)
+            echo "== most recent backup =="
+            echo "${'$'}BAK"
+            if [ -n "${'$'}BAK" ]; then
+              cp "${'$'}BAK" $CONF 2>&1
+              echo "RESTORED from ${'$'}BAK."
+              echo "dhcpd itself was NOT restarted - same reason as writeRoute()."
+            else
+              echo "No backup found on this head unit - nothing to revert."
+            fi
+        """.trimIndent()
+        val out = SshSession(host).use { ssh -> ssh.exec(script, timeoutMs = 20_000).text }
+        return "Read/written over SSH from $host.\n\n" + out.trimEnd() + "\n"
+    }
 }

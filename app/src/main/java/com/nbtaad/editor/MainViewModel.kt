@@ -1117,6 +1117,68 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // =====================================================================
+    // ZGW-bridge WRITE step (test branch only): backs up dhcpd.uap0.conf and swaps in the corrected two-line
+    // candidate, but only if dhcpd's own syntax check on it passes first. Deliberately does NOT restart dhcpd -
+    // see ZgwBridgeApply's own doc comment for why that's being held back as a separate, still-open decision.
+    // Both actions require their own explicit confirmation in the UI before running - this is the first real
+    // write to the head unit this branch makes.
+    // =====================================================================
+
+    var zgwApplyBusy by mutableStateOf(false)
+    var zgwApplyText by mutableStateOf<String?>(null)
+    var showZgwApply by mutableStateOf(false)
+    var confirmZgwWrite by mutableStateOf(false)
+    var confirmZgwRevert by mutableStateOf(false)
+
+    fun writeZgwRoute() {
+        if (zgwApplyBusy) return
+        zgwApplyBusy = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                NetworkBinder.bindToLocalNetwork(ctx)
+                val r = detectCarSsh { feedback = it }
+                applyResult(r)
+                val host = r.huIp ?: detect.hu
+                zgwApplyText = if (host != null) {
+                    com.nbtaad.editor.net.ZgwBridgeApply.writeRoute(host)
+                } else {
+                    "No head unit found to connect to. Connect first, then try again."
+                }
+            } catch (e: Exception) {
+                AppLog.e("ZgwBridgeApply", "Writing the route to dhcpd's config failed", e)
+                zgwApplyText = "Failed: ${friendlyError(e)}"
+            } finally {
+                zgwApplyBusy = false
+                showZgwApply = true
+            }
+        }
+    }
+
+    fun revertZgwRoute() {
+        if (zgwApplyBusy) return
+        zgwApplyBusy = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                NetworkBinder.bindToLocalNetwork(ctx)
+                val r = detectCarSsh { feedback = it }
+                applyResult(r)
+                val host = r.huIp ?: detect.hu
+                zgwApplyText = if (host != null) {
+                    com.nbtaad.editor.net.ZgwBridgeApply.revertRoute(host)
+                } else {
+                    "No head unit found to connect to. Connect first, then try again."
+                }
+            } catch (e: Exception) {
+                AppLog.e("ZgwBridgeApply", "Reverting dhcpd's config failed", e)
+                zgwApplyText = "Failed: ${friendlyError(e)}"
+            } finally {
+                zgwApplyBusy = false
+                showZgwApply = true
+            }
+        }
+    }
+
+    // =====================================================================
     // Writing coding: the owner's own recovered keys, a mandatory backup, then a signed write
     // =====================================================================
 

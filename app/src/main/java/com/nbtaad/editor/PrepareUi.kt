@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -152,6 +153,23 @@ fun PrepareScreen(vm: MainViewModel) {
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(if (vm.zgwDiagBusy) "READING…" else "ZGW BRIDGE: CHECK READINESS (READ-ONLY)") }
             if (vm.zgwDiagBusy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
+
+            // The one real write this test branch makes - each action asks for its own explicit confirmation
+            // first (see the dialogs further down). Neither restarts dhcpd - see ZgwBridgeApply's doc comment.
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { vm.confirmZgwWrite = true },
+                    enabled = !vm.zgwApplyBusy,
+                    modifier = Modifier.weight(1f),
+                ) { Text(if (vm.zgwApplyBusy) "…" else "WRITE ROUTE") }
+                OutlinedButton(
+                    onClick = { vm.confirmZgwRevert = true },
+                    enabled = !vm.zgwApplyBusy,
+                    modifier = Modifier.weight(1f),
+                ) { Text("REVERT") }
+            }
+            if (vm.zgwApplyBusy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
         }
 
         Spacer(Modifier.height(12.dp))
@@ -273,6 +291,73 @@ fun PrepareScreen(vm: MainViewModel) {
                 }) { Text(if (copied) "COPIED ✓" else "COPY") }
             },
             dismissButton = { TextButton(onClick = { vm.showZgwDiag = false }) { Text("CLOSE") } },
+        )
+    }
+
+    if (vm.confirmZgwWrite) {
+        AlertDialog(
+            onDismissRequest = { vm.confirmZgwWrite = false },
+            title = { Text("Write the ZGW route?") },
+            text = {
+                Text(
+                    "Backs up dhcpd.uap0.conf, then swaps in a copy with one route added - but only if dhcpd's " +
+                        "own syntax check on it passes first; otherwise nothing real is touched. This does NOT " +
+                        "restart the DHCP service: the car keeps using the old config until it re-reads the file " +
+                        "on its own (it appears to do this every so often already) or REVERT is used.",
+                    fontSize = 13.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.confirmZgwWrite = false
+                    vm.writeZgwRoute()
+                }) { Text("WRITE") }
+            },
+            dismissButton = { TextButton(onClick = { vm.confirmZgwWrite = false }) { Text("CANCEL") } },
+        )
+    }
+
+    if (vm.confirmZgwRevert) {
+        AlertDialog(
+            onDismissRequest = { vm.confirmZgwRevert = false },
+            title = { Text("Revert to the last backup?") },
+            text = {
+                Text(
+                    "Copies the most recent dhcpd.uap0.conf.bak.* back over the real file. Does nothing if no " +
+                        "backup is found. Does not restart the DHCP service.",
+                    fontSize = 13.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.confirmZgwRevert = false
+                    vm.revertZgwRoute()
+                }) { Text("REVERT") }
+            },
+            dismissButton = { TextButton(onClick = { vm.confirmZgwRevert = false }) { Text("CANCEL") } },
+        )
+    }
+
+    if (vm.showZgwApply) {
+        val clip = LocalClipboardManager.current
+        var copied by remember { mutableStateOf(false) }
+        LaunchedEffect(copied) {
+            if (copied) {
+                delay(2000)
+                copied = false
+            }
+        }
+        AlertDialog(
+            onDismissRequest = { vm.showZgwApply = false },
+            title = { Text("ZGW bridge: result") },
+            text = { NetDiagConsole(vm.zgwApplyText ?: "", maxHeight = 340.dp) },
+            confirmButton = {
+                TextButton(onClick = {
+                    clip.setText(AnnotatedString(vm.zgwApplyText ?: ""))
+                    copied = true
+                }) { Text(if (copied) "COPIED ✓" else "COPY") }
+            },
+            dismissButton = { TextButton(onClick = { vm.showZgwApply = false }) { Text("CLOSE") } },
         )
     }
 
