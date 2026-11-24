@@ -642,7 +642,11 @@ private fun OptionRow(
     var showInfo by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     val hasPresets = opt.values.isNotEmpty()
-    val isCustomValue = value != null && value !in opt.values
+    // "Custom..." is its own mode, not just "the typed value does not match a preset": once the box is open, it has
+    // to stay open while the person keeps typing, even if what they have typed so far happens to equal a preset in
+    // full (e.g. typing "6WA-F10" passes through "6WA", an existing preset, on the way) - only choosing a preset from
+    // the dropdown, or (not set), leaves custom mode.
+    var customMode by remember { mutableStateOf(value != null && value !in opt.values) }
     val soft = MaterialTheme.colorScheme.onSurfaceVariant
     val shape = RoundedCornerShape(8.dp)
 
@@ -693,6 +697,7 @@ private fun OptionRow(
                     val label = when {
                         value == null -> "(not set)"
                         value.isBlank() -> "Custom…"
+                        customMode -> value
                         value in opt.values -> opt.choiceText(value)
                         else -> value
                     }
@@ -702,21 +707,21 @@ private fun OptionRow(
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     DropdownMenuItem(
                         text = { Text("(not set)") },
-                        onClick = { onChange(null); menu = false },
+                        onClick = { customMode = false; onChange(null); menu = false },
                     )
                     opt.values.forEach { v ->
                         DropdownMenuItem(
                             text = { Text(opt.choiceText(v)) },
-                            onClick = { onChange(v); menu = false },
+                            onClick = { customMode = false; onChange(v); menu = false },
                         )
                     }
                     DropdownMenuItem(
                         text = { Text("Custom…") },
-                        onClick = { if (value == null || value in opt.values) onChange(""); menu = false },
+                        onClick = { customMode = true; if (value == null || value in opt.values) onChange(""); menu = false },
                     )
                 }
             }
-            if (isCustomValue) {
+            if (customMode) {
                 CompactField(value ?: "", { onChange(it) }, "Type a value", Modifier.fillMaxWidth().padding(top = 3.dp))
             }
         }
