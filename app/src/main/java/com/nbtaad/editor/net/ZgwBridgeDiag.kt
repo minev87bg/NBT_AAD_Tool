@@ -5,19 +5,30 @@ package com.nbtaad.editor.net
  * background). NetDiag already showed the shape of the problem: `dhcpd` on `uap0` is the thing that could, in
  * principle, hand a connecting phone an extra route to the vehicle's own 192.168.0.0/16 network (where ZGW lives),
  * via the DHCP "classless static routes" option (RFC 3442, aka option 121) - a normal, long-standing DHCP option
- * that Android already understands when a server offers it. But NetDiag only told us the config file's *path*
- * (`/var/opt/conn/dhcpd.uap0.conf`), not its actual contents or whether this particular build of `dhcpd` even
- * recognizes that option by that name. Writing the real one-line edit without knowing those two things would be
- * guessing at syntax on a live vehicle - this exists so the next edit is copied from fact, not assumed.
+ * that Android already understands when a server offers it.
  *
- * Three things, all read-only:
- * 1. The actual current file content, so the new line can be placed inside the right `subnet { }` block instead of
- *    just appended blindly to the end (which some dhcpd builds would reject as being outside any subnet scope).
- * 2. The active lease file, so the configured lease time is known (that's how long an already-connected phone would
- *    keep routing the old way before naturally asking again - relevant to whether a manual reconnect is needed).
- * 3. A dry-run syntax check of the *candidate* line - but tested against a throwaway copy in /tmp, never the real
- *    file, and deleted again immediately after. This answers "does this dhcpd build even accept this option
- *    spelled this way" before anything real is touched, without touching anything real to find out.
+ * A first real run already answered most of what this needs to know:
+ * - The file is small and has exactly one `subnet 172.16.224.0 ... { }` block - no ambiguity about where a new
+ *   line would go. It is headed "File generated automatically - Do not edit", and its own timestamp sat only
+ *   minutes behind an active lease being renewed - strong evidence something regenerates it around when the AA
+ *   WiFi service (re)starts, not just once at the factory. That matters for how long any edit here would actually
+ *   last, independent of anything this app does to revert it.
+ * - The naive one-line edit FAILS on this build: `isc-dhcpd-4.1-ESV-R3` does not predefine the symbolic name
+ *   `rfc3442-classless-static-routes` (`unknown option dhcp.rfc3442-classless-static-routes`). That option support
+ *   was added to later ISC dhcpd releases; this vendor-frozen 2011-era ESV branch predates it. The fix is a second,
+ *   equally standard line - ISC dhcpd has always let a config declare its own option codes:
+ *       option rfc3442-classless-static-routes code 121 = array of integer 8;
+ *   placed once near the top of the file, before the existing line actually USING that name inside the subnet
+ *   block. This isn't a workaround specific to this car - it's the documented, portable way to use option 121 on
+ *   any ISC dhcpd, old or new.
+ *
+ * What's tested here, all still read-only:
+ * 1. The real file content and its age (unchanged from before - kept so a fresh run is self-contained).
+ * 2. The active lease file (lease time, so it's known how long an already-connected phone would keep routing the
+ *    old way before naturally asking again).
+ * 3. A dry-run syntax check of the CORRECTED two-line form (declare, then use) - built by reading the real file
+ *    line-by-line and inserting the two new lines after their real anchor lines (not a hardcoded guess at the
+ *    file's shape), tested against a throwaway copy in /tmp, never the real file, deleted again immediately after.
  *
  * Nothing here starts, stops, or restarts any daemon, and nothing here writes to any file under /var/opt/conn
  * itself - only to a scratch copy under /tmp that it deletes in the same command.
@@ -40,12 +51,25 @@ object ZgwBridgeDiag {
         echo "== sanity check: this build can parse its OWN current config (baseline, changes nothing) =="
         dhcpd -t -cf /var/opt/conn/dhcpd.uap0.conf 2>&1
         echo
-        echo "== dry run only: does this build accept the classless-static-route option, spelled this way? =="
-        echo "   (writes a throwaway copy under /tmp, never the real file; deletes it again right after)"
-        cp /var/opt/conn/dhcpd.uap0.conf /tmp/dhcpd.uap0.conf.zgwtest 2>&1
-        echo 'option rfc3442-classless-static-routes 16, 192, 168, 172, 16, 224, 1;' >> /tmp/dhcpd.uap0.conf.zgwtest 2>&1
-        dhcpd -t -cf /tmp/dhcpd.uap0.conf.zgwtest 2>&1
-        rm -f /tmp/dhcpd.uap0.conf.zgwtest 2>&1
+        echo "== dry run, take 2: declare the option code this old dhcpd doesn't predefine, then use it =="
+        echo "   (built from the REAL file, line by line; written only to /tmp; deleted again right after)"
+        rm -f /tmp/dhcpd.uap0.conf.zgwtest2 2>&1
+        while IFS= read -r zgwline; do
+          echo "${'$'}zgwline" >> /tmp/dhcpd.uap0.conf.zgwtest2
+          case "${'$'}zgwline" in
+            "ddns-update-style none;")
+              echo "option rfc3442-classless-static-routes code 121 = array of integer 8;" >> /tmp/dhcpd.uap0.conf.zgwtest2
+              ;;
+            "   option domain-name-servers 172.16.224.1;")
+              echo "   option rfc3442-classless-static-routes 16, 192, 168, 172, 16, 224, 1;" >> /tmp/dhcpd.uap0.conf.zgwtest2
+              ;;
+          esac
+        done < /var/opt/conn/dhcpd.uap0.conf
+        echo "-- candidate file --"
+        cat /tmp/dhcpd.uap0.conf.zgwtest2 2>&1
+        echo "-- dhcpd -t result --"
+        dhcpd -t -cf /tmp/dhcpd.uap0.conf.zgwtest2 2>&1
+        rm -f /tmp/dhcpd.uap0.conf.zgwtest2 2>&1
         echo "(scratch file removed)"
     """.trimIndent()
 
