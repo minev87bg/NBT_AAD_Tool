@@ -20,6 +20,12 @@ package com.nbtaad.editor.net
  *    the exact same literal path `....conf.bak.%s`, which would silently overwrite the one clean backup on a
  *    second write. Fixed by validating the output is actually all-digits (`case ... ''|*[!0-9]*)`) and falling
  *    back to the shell's own PID (`$$`) - always numeric, always available, no dependency on `date` at all.
+ *    A second real run (the dry-run diagnostic, re-run after the edit was already live) caught a second bug:
+ *    re-running the same anchor-based insertion against an already-edited file duplicates both lines, since the
+ *    anchor lines (`ddns-update-style none;`, the `option domain-name-servers ...;` line) are still there - only
+ *    added after, never replaced. Fixed by checking first whether the real file already mentions
+ *    `rfc3442-classless-static-routes` anywhere and skipping the whole backup+insert+swap if so, reporting
+ *    "already applied" instead. Idempotent now: tapping WRITE ROUTE twice in a row does nothing the second time.
  *
  * 2. Restarting dhcpd so it actually notices the new file - deliberately NOT done here. ISC dhcpd doesn't reliably
  *    hot-reload, so making this edit "live" means either (a) killing and relaunching the running dhcpd process over
@@ -45,39 +51,50 @@ object ZgwBridgeApply {
      */
     fun writeRoute(host: String): String {
         val script = """
-            TS=${'$'}(date +%s 2>/dev/null)
-            case "${'$'}TS" in ''|*[!0-9]*) TS=${'$'}${'$'} ;; esac
-            BAK="$CONF.bak.${'$'}TS"
-            echo "== backing up the real config =="
-            cp $CONF "${'$'}BAK" 2>&1
-            ls -la "${'$'}BAK" 2>&1
-            echo
-            echo "== building the corrected candidate from that backup =="
-            rm -f $CONF.new 2>&1
+            echo "== checking whether the route is already in the real file =="
+            already=no
             while IFS= read -r zgwline; do
-              echo "${'$'}zgwline" >> $CONF.new
               case "${'$'}zgwline" in
-                "ddns-update-style none;")
-                  echo "option rfc3442-classless-static-routes code 121 = array of integer 8;" >> $CONF.new
-                  ;;
-                "   option domain-name-servers 172.16.224.1;")
-                  echo "   option rfc3442-classless-static-routes 16, 192, 168, 172, 16, 224, 1;" >> $CONF.new
-                  ;;
+                *rfc3442-classless-static-routes*) already=yes ;;
               esac
-            done < "${'$'}BAK"
-            echo "-- syntax check on the candidate before it goes anywhere near the real file --"
-            if dhcpd -t -cf $CONF.new 2>&1; then
-              mv $CONF.new $CONF 2>&1
-              echo
-              echo "SWAPPED IN. Backup kept at ${'$'}BAK."
-              echo "dhcpd itself was NOT restarted or signalled - the running process still has the OLD config in"
-              echo "memory until it re-reads the file on its own, or is told to. This is deliberate - see the"
-              echo "doc comment on ZgwBridgeApply for why that step is being held back on purpose."
+            done < $CONF
+            if [ "${'$'}already" = yes ]; then
+              echo "Already applied - nothing written. (REVERT first if you want a clean slate to re-apply onto.)"
             else
+              TS=${'$'}(date +%s 2>/dev/null)
+              case "${'$'}TS" in ''|*[!0-9]*) TS=${'$'}${'$'} ;; esac
+              BAK="$CONF.bak.${'$'}TS"
+              echo "== backing up the real config =="
+              cp $CONF "${'$'}BAK" 2>&1
+              ls -la "${'$'}BAK" 2>&1
               echo
-              echo "ABORTED: the candidate failed its own syntax check. The real file was never touched."
-              echo "The backup at ${'$'}BAK is harmless and unused - safe to ignore or delete."
+              echo "== building the corrected candidate from that backup =="
               rm -f $CONF.new 2>&1
+              while IFS= read -r zgwline; do
+                echo "${'$'}zgwline" >> $CONF.new
+                case "${'$'}zgwline" in
+                  "ddns-update-style none;")
+                    echo "option rfc3442-classless-static-routes code 121 = array of integer 8;" >> $CONF.new
+                    ;;
+                  "   option domain-name-servers 172.16.224.1;")
+                    echo "   option rfc3442-classless-static-routes 16, 192, 168, 172, 16, 224, 1;" >> $CONF.new
+                    ;;
+                esac
+              done < "${'$'}BAK"
+              echo "-- syntax check on the candidate before it goes anywhere near the real file --"
+              if dhcpd -t -cf $CONF.new 2>&1; then
+                mv $CONF.new $CONF 2>&1
+                echo
+                echo "SWAPPED IN. Backup kept at ${'$'}BAK."
+                echo "dhcpd itself was NOT restarted or signalled - the running process still has the OLD config in"
+                echo "memory until it re-reads the file on its own, or is told to. This is deliberate - see the"
+                echo "doc comment on ZgwBridgeApply for why that step is being held back on purpose."
+              else
+                echo
+                echo "ABORTED: the candidate failed its own syntax check. The real file was never touched."
+                echo "The backup at ${'$'}BAK is harmless and unused - safe to ignore or delete."
+                rm -f $CONF.new 2>&1
+              fi
             fi
         """.trimIndent()
         val out = SshSession(host).use { ssh -> ssh.exec(script, timeoutMs = 20_000).text }

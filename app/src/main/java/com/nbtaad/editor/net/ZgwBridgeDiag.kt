@@ -29,6 +29,11 @@ package com.nbtaad.editor.net
  * 3. A dry-run syntax check of the CORRECTED two-line form (declare, then use) - built by reading the real file
  *    line-by-line and inserting the two new lines after their real anchor lines (not a hardcoded guess at the
  *    file's shape), tested against a throwaway copy in /tmp, never the real file, deleted again immediately after.
+ *    Idempotent: a real run showed that once the route is already live in the real file, re-running this naively
+ *    would insert a SECOND copy of both lines right after the same anchors (which are still there - the anchors
+ *    were never removed, only added after). Fixed by checking first whether any line already mentions
+ *    `rfc3442-classless-static-routes` and skipping the insertion entirely if so - same check writeRoute() now
+ *    makes before it touches the real file.
  *
  * Nothing here starts, stops, or restarts any daemon, and nothing here writes to any file under /var/opt/conn
  * itself - only to a scratch copy under /tmp that it deletes in the same command.
@@ -53,24 +58,34 @@ object ZgwBridgeDiag {
         echo
         echo "== dry run, take 2: declare the option code this old dhcpd doesn't predefine, then use it =="
         echo "   (built from the REAL file, line by line; written only to /tmp; deleted again right after)"
-        rm -f /tmp/dhcpd.uap0.conf.zgwtest2 2>&1
+        already=no
         while IFS= read -r zgwline; do
-          echo "${'$'}zgwline" >> /tmp/dhcpd.uap0.conf.zgwtest2
           case "${'$'}zgwline" in
-            "ddns-update-style none;")
-              echo "option rfc3442-classless-static-routes code 121 = array of integer 8;" >> /tmp/dhcpd.uap0.conf.zgwtest2
-              ;;
-            "   option domain-name-servers 172.16.224.1;")
-              echo "   option rfc3442-classless-static-routes 16, 192, 168, 172, 16, 224, 1;" >> /tmp/dhcpd.uap0.conf.zgwtest2
-              ;;
+            *rfc3442-classless-static-routes*) already=yes ;;
           esac
         done < /var/opt/conn/dhcpd.uap0.conf
-        echo "-- candidate file --"
-        cat /tmp/dhcpd.uap0.conf.zgwtest2 2>&1
-        echo "-- dhcpd -t result --"
-        dhcpd -t -cf /tmp/dhcpd.uap0.conf.zgwtest2 2>&1
-        rm -f /tmp/dhcpd.uap0.conf.zgwtest2 2>&1
-        echo "(scratch file removed)"
+        if [ "${'$'}already" = yes ]; then
+          echo "Already applied - the real file already has the route. No insertion needed; nothing written."
+        else
+          rm -f /tmp/dhcpd.uap0.conf.zgwtest2 2>&1
+          while IFS= read -r zgwline; do
+            echo "${'$'}zgwline" >> /tmp/dhcpd.uap0.conf.zgwtest2
+            case "${'$'}zgwline" in
+              "ddns-update-style none;")
+                echo "option rfc3442-classless-static-routes code 121 = array of integer 8;" >> /tmp/dhcpd.uap0.conf.zgwtest2
+                ;;
+              "   option domain-name-servers 172.16.224.1;")
+                echo "   option rfc3442-classless-static-routes 16, 192, 168, 172, 16, 224, 1;" >> /tmp/dhcpd.uap0.conf.zgwtest2
+                ;;
+            esac
+          done < /var/opt/conn/dhcpd.uap0.conf
+          echo "-- candidate file --"
+          cat /tmp/dhcpd.uap0.conf.zgwtest2 2>&1
+          echo "-- dhcpd -t result --"
+          dhcpd -t -cf /tmp/dhcpd.uap0.conf.zgwtest2 2>&1
+          rm -f /tmp/dhcpd.uap0.conf.zgwtest2 2>&1
+          echo "(scratch file removed)"
+        fi
     """.trimIndent()
 
     /**
