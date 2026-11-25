@@ -475,4 +475,203 @@ object Hsfz {
             runCatching { socket.close() }
         }
     }
+
+    /**
+     * One HSFZ session for a UDS **flash** (not coding) operation: entering/leaving programming mode,
+     * the flash-level (0x11/0x12) SecurityAccess handshake, and the erase/download/transfer/exit/check
+     * sequence that actually writes a file to the head unit's filesystem. Ported frame-for-frame from
+     * vandelayautollc/nbt-evo-toolkit's `capabilities/flash_and_patching/tools/flash_plan.py` and
+     * `03-flashing-safely.md` (MIT licensed) - "proven on-car: the OPT_DEBUG file-copy flash was run
+     * over the UDS route (in both a Pi tool and the Android app)". See [FlashWrite] for the orchestration
+     * (ordering, retries, the mandatory teardown) that calls these.
+     *
+     * Unlike [CodingSession], this session's own socket is **replaced**, not just held: `10 02`
+     * (ProgrammingSession) makes the head unit self-reboot into its bootloader, which drops the TCP
+     * connection - [reconnect] closes the old socket and opens a fresh one to the same address, which
+     * [FlashWrite] uses to resume polling across that reboot (and again on the way back out).
+     */
+    class FlashSession(private val zgwIp: String) : java.io.Closeable {
+        private var socket: Socket = openSocket(zgwIp)
+
+        private fun openSocket(ip: String): Socket = Socket().apply {
+            tcpNoDelay = true
+            connect(InetSocketAddress(ip, TCP_PORT), 3000)
+            soTimeout = 4000
+        }
+
+        /** Closes the current socket and opens a new one to the same gateway - needed right after
+         * `10 02` (ProgrammingSession) and again after `31 01 100F` (ActivateApplicationMode), since the
+         * head unit reboots across both of those and the old TCP connection does not survive it. */
+        fun reconnect() {
+            runCatching { socket.close() }
+            socket = openSocket(zgwIp)
+        }
+
+        sealed class Outcome {
+            /** A positive UDS response, SID echo included (e.g. `67 11 <seed>`, `74 <len><maxBlk>`, `71 <sub><rid>`). */
+            data class Positive(val data: ByteArray) : Outcome()
+            data class Negative(val nrc: Int) : Outcome()
+            object NoResponse : Outcome()
+        }
+
+        /** Sends one UDS request and returns its outcome, riding response-pending (`7F xx 78`) until [timeoutMs].
+         * Same frame/retry logic as [CodingSession.exchange] - duplicated rather than shared because this
+         * session's socket is a `var` (it gets replaced by [reconnect]), where [CodingSession]'s never is. */
+        fun exchange(uds: ByteArray, timeoutMs: Long = 5000): Outcome {
+            val requestSid = uds[0].toInt() and 0xFF
+            AppLog.d("HSFZ", "-> ${uds.toHexSpaced()}")
+            try {
+                socket.getOutputStream().write(diagFrame(TESTER, HEAD_UNIT, uds))
+                socket.getOutputStream().flush()
+            } catch (e: IOException) {
+                AppLog.w("HSFZ", "flash: write failed: ${e.javaClass.simpleName}: ${e.message}")
+                return Outcome.NoResponse
+            }
+            val deadline = System.currentTimeMillis() + timeoutMs
+            while (System.currentTimeMillis() < deadline) {
+                val f = try {
+                    readFrame(socket.getInputStream())
+                } catch (e: IOException) {
+                    null
+                } ?: return Outcome.NoResponse
+                AppLog.d("HSFZ", "<- type=0x%04X %s".format(f.type, f.payload.toHexSpaced()))
+                if (f.type != CW_DIAG || f.payload.size < 3) continue
+                val resp = f.payload.copyOfRange(2, f.payload.size)
+                if (resp.isEmpty()) continue
+                val sid = resp[0].toInt() and 0xFF
+                when {
+                    sid == 0x7F -> {
+                        val echoedSid = if (resp.size >= 2) resp[1].toInt() and 0xFF else -1
+                        if (echoedSid != requestSid) {
+                            AppLog.w("HSFZ", "ignoring 0x7F for SID 0x%02X while waiting on 0x%02X".format(echoedSid, requestSid))
+                            continue
+                        }
+                        val nrc = if (resp.size >= 3) resp[2].toInt() and 0xFF else -1
+                        if (nrc == 0x78) continue // responsePending - erase/checkMemory can hold this a long time
+                        return Outcome.Negative(nrc)
+                    }
+                    sid == requestSid + 0x40 -> return Outcome.Positive(resp)
+                    else -> continue
+                }
+            }
+            return Outcome.NoResponse
+        }
+
+        /** Fire-and-forget `3E 80` (TesterPresent, suppressPosRspMsgIndicationBit set - no reply expected).
+         * Call roughly once a second while a long step (transferData in particular) is in flight, so the
+         * ECU doesn't time out the session for inactivity mid-write. Never throws. */
+        fun testerPresent() {
+            try {
+                socket.getOutputStream().write(diagFrame(TESTER, HEAD_UNIT, byteArrayOf(0x3E, 0x80.toByte())))
+                socket.getOutputStream().flush()
+            } catch (_: IOException) {
+                // best-effort; a dropped keepalive during a reboot window is expected, not an error
+            }
+        }
+
+        fun enterSession(sub: Int, timeoutMs: Long = 5000): Outcome = exchange(byteArrayOf(0x10, sub.toByte()), timeoutMs)
+        fun readDataByIdentifier(did: Int, timeoutMs: Long = 5000): Outcome =
+            exchange(byteArrayOf(0x22, (did ushr 8).toByte(), did.toByte()), timeoutMs)
+        fun writeDataByIdentifier(did: Int, data: ByteArray, timeoutMs: Long = 5000): Outcome =
+            exchange(byteArrayOf(0x2E, (did ushr 8).toByte(), did.toByte()) + data, timeoutMs)
+        fun routineControl(sub: Int, rid: Int, data: ByteArray = ByteArray(0), timeoutMs: Long = 5000): Outcome =
+            exchange(byteArrayOf(0x31, sub.toByte(), (rid ushr 8).toByte(), rid.toByte()) + data, timeoutMs)
+        fun ecuReset(sub: Int = 0x01, timeoutMs: Long = 8000): Outcome = exchange(byteArrayOf(0x11, sub.toByte()), timeoutMs)
+
+        /** `85 <sub>` - ControlDTCSetting. `sub=0x02` turns DTC logging off, `0x01` back on. */
+        fun dtcControl(sub: Int): Outcome = exchange(byteArrayOf(0x85.toByte(), sub.toByte()))
+
+        /** `28 <sub> <commType>` - CommunicationControl. `sub=0x01` ("quiet") disables normal transmit
+         * during the write; `sub=0x00` restores it. `commType=0x01` (normalCommunicationMessages) both ways. */
+        fun commControl(sub: Int, commType: Int = 0x01): Outcome = exchange(byteArrayOf(0x28, sub.toByte(), commType.toByte()))
+
+        /** `27 11` - flash-level requestSeed. Unlike [CodingSession.securityAccessSeedCoding], `flash_plan.py`
+         * shows this sent bare (no testerId suffix) - not yet confirmed on this car whether that holds here
+         * too; if `27 11` comes back NRC 0x13 the way coding's bare `27 01` did, the same 4-byte-testerId
+         * fix is the first thing to try (see [FlashWrite]). */
+        fun securityAccessSeedFlash(): Outcome = exchange(byteArrayOf(0x27, 0x11))
+
+        /** `27 12 <key>` - flash-level sendKey. [key] is the full wire payload from [L3.signSeed] (the
+         * `00000020` word-count prefix plus the 128-byte, per-word-swapped signature - 132 bytes total),
+         * not a plain signed seed. */
+        fun securityAccessSendKeyFlash(key: ByteArray): Outcome = exchange(byteArrayOf(0x27, 0x12) + key, timeoutMs = 6000)
+
+        /** `34 00 44 <addr:4 BE><size:4 BE>` - requestDownload. [addr] is always 0 for a file-copy
+         * container (there's no real flash address; the file-copy job ignores it). Reply is `74
+         * <lengthFormatId><maxNumberOfBlockLength>` - the per-block payload size is that minus 2 (the
+         * `36 <BSC>` header each transferData block also carries). */
+        fun requestDownload(size: Int, addr: Int = 0): Outcome {
+            val a = ByteArray(4); val sz = ByteArray(4)
+            for (i in 0..3) { a[i] = (addr ushr (8 * (3 - i))).toByte(); sz[i] = (size ushr (8 * (3 - i))).toByte() }
+            return exchange(byteArrayOf(0x34, 0x00, 0x44) + a + sz, timeoutMs = 8000)
+        }
+
+        /** `36 <BSC><block>` - transferData. [bsc] (blockSequenceCounter) starts at 1 and wraps `0xFF`->`0x00`;
+         * each call is one block of up to `maxNumberOfBlockLength - 2` bytes. A positive reply is `76 <bsc>`,
+         * echoing the same counter. */
+        fun transferData(bsc: Int, block: ByteArray, timeoutMs: Long = 8000): Outcome =
+            exchange(byteArrayOf(0x36, bsc.toByte()) + block, timeoutMs)
+
+        /** `37` - requestTransferExit. The file-copy job actually runs when this is answered; nothing is
+         * written to the car before this returns positive. */
+        fun requestTransferExit(timeoutMs: Long = 15000): Outcome = exchange(byteArrayOf(0x37), timeoutMs)
+
+        /** `31 01 FF00 02 44 <lbn:4 BE> 06` - eraseMemory (indicated form). `LBN 0` is the value proven
+         * on-car for a file-copy container (a real flash-area erase would use its own LBN). Can emit `0x78`
+         * for a long time - give this a generous [timeoutMs]. */
+        fun eraseMemory(lbn: Int = 0, timeoutMs: Long = 125_000): Outcome {
+            val l = ByteArray(4)
+            for (i in 0..3) l[i] = (lbn ushr (8 * (3 - i))).toByte()
+            return routineControl(0x01, 0xFF00, byteArrayOf(0x02, 0x44) + l + byteArrayOf(0x06), timeoutMs)
+        }
+
+        /** `31 01 0202 12 44 <lbn:4 BE> 0000` - checkMemory. The trailing `0000` is a fixed length constant,
+         * **not** a CRC - nothing is computed for it. A failure here is non-fatal per the runbook (log and
+         * continue); this can also emit `0x78` for a while. */
+        fun checkMemory(lbn: Int = 0, timeoutMs: Long = 125_000): Outcome {
+            val l = ByteArray(4)
+            for (i in 0..3) l[i] = (lbn ushr (8 * (3 - i))).toByte()
+            return routineControl(0x01, 0x0202, byteArrayOf(0x12, 0x44) + l + byteArrayOf(0x00, 0x00), timeoutMs)
+        }
+
+        fun checkProgrammingDependencies(): Outcome = routineControl(0x01, 0xFF01)
+
+        /** Polls `22 F186` (ActiveDiagnosticSessionDataIdentifier) until the 4th data byte equals
+         * [wantSession] (`0x02` = in the bootloader/programming session, `0x01` = back in the default
+         * app session), or [maxWaitMs] elapses. Reconnects are the caller's job (see [FlashWrite]) -
+         * this only polls whatever socket is current. */
+        fun pollSession(wantSession: Int, maxWaitMs: Long, pollEveryMs: Long = 1000): Boolean {
+            val deadline = System.currentTimeMillis() + maxWaitMs
+            while (System.currentTimeMillis() < deadline) {
+                when (val o = readDataByIdentifier(0xF186, timeoutMs = pollEveryMs)) {
+                    is Outcome.Positive -> if (o.data.size > 3 && (o.data[3].toInt() and 0xFF) == wantSession) return true
+                    else -> {}
+                }
+            }
+            return false
+        }
+
+        /** Polls `22 100A` (EnergyMode) until it reads [wantZero]`== 0` is read as *exactly zero* when
+         * true, or *non-zero* when false, or [maxWaitMs] elapses. Returns the last value read (or null if
+         * never answered) alongside whether the wanted condition was met. */
+        fun pollEnergyMode(wantZero: Boolean, maxWaitMs: Long, pollEveryMs: Long = 1000): Pair<Boolean, Int?> {
+            val deadline = System.currentTimeMillis() + maxWaitMs
+            var last: Int? = null
+            while (System.currentTimeMillis() < deadline) {
+                when (val o = readDataByIdentifier(0x100A, timeoutMs = pollEveryMs)) {
+                    is Outcome.Positive -> {
+                        val v = if (o.data.size > 3) o.data[3].toInt() and 0xFF else null
+                        last = v
+                        if (v != null && (v == 0) == wantZero) return true to v
+                    }
+                    else -> {}
+                }
+            }
+            return false to last
+        }
+
+        override fun close() {
+            runCatching { socket.close() }
+        }
+    }
 }
