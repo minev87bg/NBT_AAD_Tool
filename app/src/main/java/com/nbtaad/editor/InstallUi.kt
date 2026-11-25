@@ -1193,7 +1193,8 @@ private fun DiagDialog(inst: InstallController, text: String) {
 
 /**
  * "Restarting the head unit is recommended" goes with a button that does it: the same reset as on the first screen, and
- * its progress below. Nothing is shown when the app does not know the car's gateway (then there is nothing to send to).
+ * its progress below. When the app does not know the car's gateway there is nothing to send a reset to, so a line says
+ * that instead of a button, rather than leaving the recommendation above with nothing underneath it.
  */
 @Composable
 internal fun ResetButton(vm: MainViewModel, modifier: Modifier = Modifier) {
@@ -1217,6 +1218,15 @@ internal fun ResetButton(vm: MainViewModel, modifier: Modifier = Modifier) {
             enabled = !vm.resetting && !vm.busy,
             modifier = modifier.fillMaxWidth(),
         ) { Text("Reset HeadUnit") }
+    } else {
+        // no gateway known: say so, instead of leaving "restarting is recommended" with nothing underneath it
+        Text(
+            "No gateway (ZGW) known, so there is nothing to send a reset to. Connect over the vehicle's Ethernet " +
+                "port (an ENET/OBD cable), or hold the power button for 30 seconds instead.",
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = modifier.fillMaxWidth(),
+        )
     }
 }
 

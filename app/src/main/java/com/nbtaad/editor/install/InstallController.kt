@@ -73,6 +73,14 @@ class InstallController(
     /** Set by the app: takes a file picked on the phone to the page of the add-on it is (the tile, the menu look); true when it did. */
     var onAddOnFile: ((SourceFile) -> Boolean)? = null
 
+    /**
+     * Set by the app: called right after an install, a go-back or an uninstall finishes successfully - every one of
+     * which changes a file the head unit only reads at startup, which is why the result dialog always recommends a
+     * restart. So the app resets the head unit itself here rather than leaving that for the person to remember and
+     * find a button for afterwards.
+     */
+    var onFinishedOk: (() -> Unit)? = null
+
     // the files kept on the phone for later (see ShelfStore)
     private val shelfStore = ShelfStore(ctx)
     var shelf by mutableStateOf<List<ShelfItem>>(emptyList()); private set
@@ -561,6 +569,7 @@ class InstallController(
                 val headline = "Installed $what" + (out.daemonVersion?.let { " ($it)" } ?: "") + "."
                 addLine(headline, if (out.problems.isEmpty()) Level.OK else Level.WARN)
                 finish(RunStatus.OK, headline, out.problems, pluginChanged = out.plugin)
+                onFinishedOk?.invoke()
                 v.shelfId?.let {
                     // a note on the shelf must never turn a good install into a failed one
                     try {
@@ -601,6 +610,7 @@ class InstallController(
                 val headline = "Back to the previous $what" + (out.daemonVersion?.let { " ($it)" } ?: "") + "."
                 addLine(headline, Level.OK)
                 finish(RunStatus.OK, headline, pluginChanged = out.plugin)
+                onFinishedOk?.invoke()
             } catch (e: Exception) {
                 AppLog.e("Revert", "Go back failed", e)
                 addLine(friendlyError(e), Level.ERROR)
@@ -654,6 +664,7 @@ class InstallController(
                 val headline = "Android Auto was removed from the head unit."
                 addLine(headline, if (out.problems.isEmpty()) Level.OK else Level.WARN)
                 finish(RunStatus.OK, headline, out.problems, pluginChanged = out.plan.moves.isNotEmpty())
+                onFinishedOk?.invoke()
             } catch (e: Exception) {
                 AppLog.e("Uninstall", "Uninstall failed", e)
                 addLine(friendlyError(e), Level.ERROR)

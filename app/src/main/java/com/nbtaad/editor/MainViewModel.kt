@@ -125,7 +125,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val inst = InstallController(
         ctx, viewModelScope, host = { detect.hu }, rescan = { rescanForHost() }, problem = { scanProblem },
         catalog = { catalog },
-    )
+    ).apply {
+        // every install, go-back and uninstall changes a file the head unit only reads at startup, so send the
+        // reset itself instead of leaving the person to notice the recommendation and find a button for it
+        onFinishedOk = { resetHeadUnit(fromWindow = true) }
+    }
 
     /** The page of the Android Auto tile add-on: test, install and remove it. */
     val tile = TileController(
