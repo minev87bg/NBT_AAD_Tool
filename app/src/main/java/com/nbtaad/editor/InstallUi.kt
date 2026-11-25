@@ -1205,11 +1205,10 @@ internal fun ResetButton(vm: MainViewModel, modifier: Modifier = Modifier) {
             Text(note, fontSize = 12.sp, color = if (failed) Red else Color.Unspecified)
             if (vm.resetting) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 6.dp))
             if (failed && canReset) {
-                val tryHarder = vm.resetCanTryHarder
                 OutlinedButton(
-                    onClick = { vm.resetHeadUnit(fromWindow = true, wide = tryHarder) },
+                    onClick = { vm.resetHeadUnit(fromWindow = true) },
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                ) { Text(if (tryHarder) "Try harder" else "Try again") }
+                ) { Text("Try again") }
             }
         }
     } else if (canReset) {

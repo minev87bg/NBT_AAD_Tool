@@ -23,7 +23,6 @@ import com.nbtaad.editor.env.Opt
 import com.nbtaad.editor.addon.AddOnCatalog
 import com.nbtaad.editor.addon.AddOns
 import com.nbtaad.editor.addon.CatalogEntry
-import com.nbtaad.editor.install.HuRestart
 import com.nbtaad.editor.install.InstallController
 import com.nbtaad.editor.install.MenuLookController
 import com.nbtaad.editor.install.SourceFile
@@ -49,7 +48,6 @@ import com.nbtaad.editor.net.Hsfz
 import com.nbtaad.editor.net.Internet
 import com.nbtaad.editor.net.NetworkBinder
 import com.nbtaad.editor.net.PortProbe
-import com.nbtaad.editor.net.PortState
 import com.nbtaad.editor.net.Reach
 import com.nbtaad.editor.net.Online
 import com.nbtaad.editor.net.WriteStep
@@ -61,7 +59,6 @@ import com.nbtaad.editor.update.UpdateOffer
 import com.nbtaad.editor.update.Updater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -297,13 +294,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     var resetNote by mutableStateOf<String?>(null)
 
-    /**
-     * True right after a reset through the head unit's shell (no gateway on the car's own Android Auto WiFi) failed
-     * because the normal, depth-limited search found no restart command: a slower, whole-file-system search can still
-     * find one, so the retry button offers that instead of simply repeating the same attempt. False again once that
-     * slower search itself is tried (there is nothing more to escalate to) or a reset through the gateway is in play.
-     */
-    var resetCanTryHarder by mutableStateOf(false)
     var askDraft by mutableStateOf(false)
     var manualDialog by mutableStateOf(false)
     private var pollJob: Job? = null
@@ -747,18 +737,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Reset the head unit through the ZGW (no SSH), then keep checking until SSH opens. The car is scanned again
-     * first, so the reset goes to the gateway as it is now (the addresses of an earlier scan may be old); only when
-     * the scan finds nothing, the address that was known is tried. [fromWindow]: it was started from a result
-     * window, which shows the progress as [resetNote] instead of the shared feedback line. [wide]: a retry of a
-     * head-unit-shell reset whose normal search found no restart command, this time with the slower, whole-file-system
-     * search (see [HuRestart]); has no effect when the gateway is reachable, since that path does not search for anything.
+     * Reset the head unit through the ZGW - the only way this app resets a head unit now. Asking the head unit's own
+     * shell to restart over SSH has been retired: on a real head unit it has hung the whole system twice, with the
+     * power button the only way back, so it is never tried, not even when the gateway is unreachable but SSH is open
+     * (the car's own Android Auto WiFi, no gateway on it). In that situation this simply reports that there is no
+     * gateway to reset through - see [canResetHeadUnit]. The car is scanned again first, so the reset goes to the
+     * gateway as it is now (the addresses of an earlier scan may be old); only when the scan finds nothing, the
+     * address that was known is tried. [fromWindow]: it was started from a result window, which shows the progress
+     * as [resetNote] instead of the shared feedback line.
      */
-    fun resetHeadUnit(fromWindow: Boolean = false, wide: Boolean = false) {
+    fun resetHeadUnit(fromWindow: Boolean = false) {
         pollJob?.cancel()
         resetting = true
         feedbackError = false
-        resetCanTryHarder = false
         resetNote = if (fromWindow) "Looking for the vehicle…" else null
         fun note(text: String) { if (resetNote != null) resetNote = text }
         feedback = "Looking for the vehicle…"
@@ -776,14 +767,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     )
                 }
                 AppLog.i("Reset", "Scan before the reset: gateway ${scan.zgwIp}, head unit ${scan.huIp}, SSH ${scan.sshOpen}; sending to $gw")
-                val shellHost = scan.huIp
-                if (gw == null && scan.sshOpen && shellHost != null) {
-                    // the car's own WiFi has no gateway to send to, but the head unit's shell answers: it is asked to restart
-                    restartThroughShell(shellHost, ::note, wide)
-                    return@launch
-                }
                 if (gw == null) {
-                    val text = scan.problem ?: "No vehicle detected."
+                    val text = scan.problem
+                        ?: "No gateway (ZGW) found to reset through. Connect over the vehicle's Ethernet port (an " +
+                            "ENET/OBD cable), or hold the power button for 30 seconds instead."
                     feedbackError = true
                     feedback = text
                     note(text)
@@ -835,67 +822,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /**
-     * Asks the head unit's shell to restart (the gateway is out of reach on the car's Android Auto WiFi) and follows it: the
-     * SSH answer has to go away, which shows that it restarted, and come back, which needs Android Auto to be connected again.
-     * [wide] asks [HuRestart] for the slower, whole-file-system search instead of the normal depth-limited one.
-     */
-    private suspend fun CoroutineScope.restartThroughShell(host: String, note: (String) -> Unit, wide: Boolean = false) {
-        feedback = if (wide) "Asking the head unit to restart (a slower, more thorough search this time)…" else "Asking the head unit to restart…"
-        note(feedback)
-        val r = HuRestart.ask(host, wide)
-        if (r.error != null) {
-            feedbackError = true
-            feedback = r.error
-            note(r.error)
-            // the normal search found nothing, but a slower one that looks everywhere still might: offer that as the retry
-            resetCanTryHarder = !wide
-            return
-        }
-        detect = detect.copy(ssh = false)
-        var waited = 0
-        var wentDown = false
-        val downBy = System.currentTimeMillis() + 90_000
-        while (isActive && !wentDown && System.currentTimeMillis() < downBy) {
-            feedback = "Waiting for the head unit to shut down… (${waited}s)"
-            note("The head unit is restarting… (${waited}s)")
-            delay(3000)
-            waited += 3
-            wentDown = HeadUnitLight.see(host).ssh != PortState.OPEN
-        }
-        if (!wentDown) {
-            val text = "The head unit was asked to restart, but it kept answering. Hold the power button for 30 seconds instead."
-            AppLog.w("Reset", text)
-            feedbackError = true
-            feedback = text
-            note(text)
-            return
-        }
-        AppLog.i("Reset", "The head unit's SSH went away after ${waited}s: it is restarting")
-        val backBy = System.currentTimeMillis() + 300_000
-        while (isActive && System.currentTimeMillis() < backBy) {
-            feedback = "The head unit is restarting… (${waited}s)"
-            note("The head unit is restarting… (${waited}s)")
-            delay(5000)
-            waited += 5
-            val seen = HeadUnitLight.see(host)
-            if (HeadUnitLight.judge(listOf(seen), true).green) {
-                detect = detect.copy(hu = host, ssh = true)
-                feedback = "Head unit is back and SSH is open."
-                note("The head unit is back.")
-                return
-            }
-        }
-        val text = "The head unit restarted. SSH answers again once Android Auto is connected to the phone again: start it, then try again."
-        AppLog.i("Reset", text)
-        feedback = text
-        note(text)
-    }
+    /** A reset can be sent only through the vehicle's gateway (ZGW) - asking the head unit's own shell to restart has been retired as too risky. */
+    val canResetHeadUnit: Boolean get() = detect.zgw != null && detect.vin != null
 
-    /** A reset can be sent: through the vehicle's gateway, or, on the vehicle's Android Auto WiFi where there is none, asked of the head unit's shell. */
-    val canResetHeadUnit: Boolean get() = (detect.zgw != null && detect.vin != null) || (detect.hu != null && detect.ssh)
-
-    // ---------------- the Reset window (3-dot menu): every method, listed ----------------
+    // ---------------- the Reset window (3-dot menu): the same gateway-only reset, with each step listed ----------------
 
     var resetWindowOpen by mutableStateOf(false)
     var resetWindowBusy by mutableStateOf(false); private set
@@ -911,15 +841,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * RESET HU in the window opened from the 3-dot menu: unlike [resetHeadUnit] (which only ever follows the one path
-     * the last scan makes available), this tries every method there is and reports each as its own line in
-     * [resetWindowLog], red dot when it did not work - so the person can see why, instead of guessing which path was
-     * taken. The vehicle is scanned fresh first, so a method is never sent to a stale address. Only one reset is
-     * actually sent: the gateway's own reset when the gateway is there, the head unit's shell asked to restart only
-     * when the gateway is not there or the gateway's reset failed (sending both risks racing the head unit against
-     * itself as it restarts).
+     * RESET HU in the window opened from the 3-dot menu: the same single reset as [resetHeadUnit] (through the
+     * gateway only - see its doc comment for why that is the only path left), but reports each step as its own line
+     * in [resetWindowLog], red dot when it did not work, so the person can see exactly what was found and sent
+     * instead of only the last status line. The vehicle is scanned fresh first, so the reset is never sent to a
+     * stale address.
      */
-    fun resetHeadUnitAllMethods() {
+    fun resetHeadUnitWindow() {
         if (resetWindowBusy) return
         resetWindowBusy = true
         resetWindowLog = emptyList()
@@ -947,28 +875,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     log("Reset by the gateway (ZGW)", res.ok, res.message)
                     zgwOk = res.ok
                 } else {
-                    log("Reset by the gateway (ZGW)", false, "No gateway found: nothing to send the reset to.")
+                    log(
+                        "Reset by the gateway (ZGW)", false,
+                        "No gateway found: nothing to send the reset to. Connect over the vehicle's Ethernet port " +
+                            "(an ENET/OBD cable), or hold the power button for 30 seconds instead.",
+                    )
                 }
-                var sshOk = false
-                if (!zgwOk) {
-                    val shellHost = scan.huIp ?: detect.hu
-                    if (shellHost != null) {
-                        var r = HuRestart.ask(shellHost)
-                        if (r.error != null) {
-                            // the normal, depth-limited search found nothing: this window tries every method there is,
-                            // so it goes on to the slower, whole-file-system search itself rather than stopping here
-                            log("Restart through SSH", false, "${r.error} Trying a slower, more thorough search…")
-                            r = HuRestart.ask(shellHost, wide = true)
-                        }
-                        sshOk = r.error == null
-                        log("Restart through SSH", sshOk, r.error ?: (r.ok + r.info).lastOrNull() ?: "Asked.")
-                    } else {
-                        log("Restart through SSH", false, "No head unit address known: nothing to ask.")
-                    }
-                } else {
-                    log("Restart through SSH", true, "Not needed: the gateway's reset was sent.")
-                }
-                if (zgwOk || sshOk) {
+                if (zgwOk) {
                     detect = detect.copy(ssh = false)
                     log("Wait for the head unit", true, "Waiting for SSH to open again…")
                     val end = System.currentTimeMillis() + 240_000
@@ -986,7 +899,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
             } catch (e: Exception) {
-                AppLog.e("Reset", "Reset (all methods) failed", e)
+                AppLog.e("Reset", "Reset failed", e)
                 log("Reset", false, friendlyError(e))
             } finally {
                 resetWindowBusy = false
@@ -1043,40 +956,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 AppLog.e("Coding", "Checking the coding bits failed", e)
             } finally {
                 codingChecking = false
-            }
-        }
-    }
-
-    // =====================================================================
-    // Network info (read-only): whatever SSH connection is open right now, is the head unit also sitting
-    // on the vehicle's own ZGW network? Nothing here writes to, starts, or changes anything on the head
-    // unit - see NetDiag's own doc comment for what is actually read and why.
-    // =====================================================================
-
-    var netDiagBusy by mutableStateOf(false)
-    var netDiagText by mutableStateOf<String?>(null)
-    var showNetDiag by mutableStateOf(false)
-
-    fun checkNetworking() {
-        if (netDiagBusy) return
-        netDiagBusy = true
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                NetworkBinder.bindToLocalNetwork(ctx)
-                val r = detectCarSsh { feedback = it }
-                applyResult(r)
-                val host = r.huIp ?: detect.hu
-                netDiagText = if (host != null) {
-                    com.nbtaad.editor.net.NetDiag.run(host)
-                } else {
-                    "No head unit found to connect to. Connect first, then try again."
-                }
-            } catch (e: Exception) {
-                AppLog.e("NetDiag", "Reading the head unit's networking failed", e)
-                netDiagText = "Failed: ${friendlyError(e)}"
-            } finally {
-                netDiagBusy = false
-                showNetDiag = true
             }
         }
     }

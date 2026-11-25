@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -40,15 +39,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
 
 /** The light blue used for "Prepare headunit": the hub tile, and this page's own theme. */
 internal val PrepareBlue = Color(0xFF3DAEDE)
@@ -134,16 +130,6 @@ fun PrepareScreen(vm: MainViewModel) {
         StatusRow("Vehicle's Ethernet gateway (ZGW)", vm.detect.zgw, found = vm.detect.zgw != null)
         StatusRow("Head unit's SSH", if (vm.detect.ssh) "Open" else null, found = vm.detect.ssh)
 
-        if (vm.detect.ssh) {
-            Spacer(Modifier.height(10.dp))
-            OutlinedButton(
-                onClick = { vm.checkNetworking() },
-                enabled = !vm.netDiagBusy,
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text(if (vm.netDiagBusy) "READING…" else "NETWORK INFO (READ-ONLY)") }
-            if (vm.netDiagBusy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
-        }
-
         Spacer(Modifier.height(12.dp))
         when {
             vm.detect.ssh -> {
@@ -197,39 +183,6 @@ fun PrepareScreen(vm: MainViewModel) {
             title = { Text("Write log") },
             text = { WriteLogConsole(vm.codingWriteLog ?: emptyList(), maxHeight = 340.dp) },
             confirmButton = { TextButton(onClick = { vm.showCodingWriteLog = false }) { Text("CLOSE") } },
-        )
-    }
-
-    if (vm.showNetDiag) {
-        val clip = LocalClipboardManager.current
-        var copied by remember { mutableStateOf(false) }
-        LaunchedEffect(copied) {
-            if (copied) {
-                delay(2000)
-                copied = false
-            }
-        }
-        AlertDialog(
-            onDismissRequest = { vm.showNetDiag = false },
-            title = { Text("Network info") },
-            text = {
-                Column {
-                    Text(
-                        "Read-only: interfaces, routes and whether forwarding is on. Nothing is changed or sent " +
-                            "anywhere by reading this.",
-                        fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 8.dp),
-                    )
-                    NetDiagConsole(vm.netDiagText ?: "", maxHeight = 340.dp)
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    clip.setText(AnnotatedString(vm.netDiagText ?: ""))
-                    copied = true
-                }) { Text(if (copied) "COPIED ✓" else "COPY") }
-            },
-            dismissButton = { TextButton(onClick = { vm.showNetDiag = false }) { Text("CLOSE") } },
         )
     }
 
@@ -555,27 +508,6 @@ private fun CodingCheckConsole(results: List<com.nbtaad.editor.net.CodingResult>
                     color = Color(0xFFD0D4D0),
                 )
             }
-        }
-    }
-}
-
-/** NETWORK INFO's raw output: a dark console, selectable so it can be copied by hand too, not only via COPY. */
-@Composable
-private fun NetDiagConsole(text: String, maxHeight: Dp) {
-    SelectionContainer {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .heightIn(max = maxHeight)
-                .background(Color(0xFF0E120E), RoundedCornerShape(6.dp))
-                .verticalScroll(rememberScrollState())
-                .padding(8.dp),
-        ) {
-            Text(
-                text.ifBlank { "Nothing read yet." },
-                fontSize = 11.sp, lineHeight = 14.sp, fontFamily = FontFamily.Monospace,
-                color = Color(0xFFD0D4D0),
-            )
         }
     }
 }

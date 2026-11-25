@@ -217,10 +217,9 @@ internal fun MoreMenu(vm: MainViewModel, modifier: Modifier) {
 }
 
 /**
- * Reset, from the 3-dot menu: every reset method there is, tried in turn and listed as its own console line (red
- * dot when it did not work) - see [MainViewModel.resetHeadUnitAllMethods]. Unlike the reset buttons elsewhere in the
- * app (which quietly pick whichever one path is reachable), this is the place to see what was actually tried and why
- * a method was skipped or failed.
+ * Reset, from the 3-dot menu: the same gateway-only reset as the buttons elsewhere in the app, but with each step
+ * listed as its own console line (red dot when it did not work) - see [MainViewModel.resetHeadUnitWindow]. This is
+ * the place to see exactly what was found and sent, instead of only the last status line.
  */
 @Composable
 internal fun ResetWindowDialog(vm: MainViewModel) {
@@ -230,12 +229,13 @@ internal fun ResetWindowDialog(vm: MainViewModel) {
         text = {
             Column {
                 Text(
-                    "Looks for the vehicle, then resets it: through its gateway (ZGW) when there is one, " +
-                        "otherwise the head unit's own shell is asked to restart. Every method is listed below.",
+                    "Looks for the vehicle, then resets it through its gateway (ZGW). If there is no gateway to " +
+                        "send it to, nothing is tried - asking the head unit's own shell to restart has been " +
+                        "retired as too risky. What was found and done is listed below.",
                     fontSize = 12.sp,
                 )
                 Spacer(Modifier.height(10.dp))
-                Button(onClick = { vm.resetHeadUnitAllMethods() }, enabled = !vm.resetWindowBusy) {
+                Button(onClick = { vm.resetHeadUnitWindow() }, enabled = !vm.resetWindowBusy) {
                     Text(if (vm.resetWindowBusy) "RESETTING…" else "RESET HU")
                 }
                 Spacer(Modifier.height(10.dp))
