@@ -134,6 +134,7 @@ fun PrepareScreen(vm: MainViewModel) {
         when {
             vm.detect.ssh -> {
                 Text("SSH is open.", fontSize = 13.sp, color = Green)
+                StarterCfgResearchSection(vm)
             }
             vm.detect.zgw != null -> {
                 Text(
@@ -328,6 +329,42 @@ fun SigningToolsScreen(vm: MainViewModel) {
                 }) { Text("CHOOSE FOLDER") }
             },
             dismissButton = { TextButton(onClick = { vm.showRecoveryInfo = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+/**
+ * Research step for the SSH-unlock feature, not the feature itself: reads the car's live
+ * `starter.cfg` over the SSH window that's already open, and lets the owner export it to send along.
+ * Needs no new unlock - [vm.detect.ssh] is already true wherever this is shown.
+ */
+@Composable
+private fun StarterCfgResearchSection(vm: MainViewModel) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val saver = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream"),
+    ) { uri -> if (uri != null) vm.exportStarterCfgTo(uri) }
+
+    Spacer(Modifier.height(14.dp))
+    Text(
+        "Research: read the car's current starter.cfg (building the SSH-unlock feature) and export it to send along.",
+        fontSize = 11.sp, color = muted,
+    )
+    Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        OutlinedButton(onClick = { vm.readStarterCfg() }, enabled = !vm.scBusy) {
+            Text(if (vm.scBusy) "READING…" else "READ STARTER.CFG")
+        }
+        if (vm.scHasStock) {
+            Spacer(Modifier.width(8.dp))
+            OutlinedButton(onClick = { saver.launch("starter" + (vm.scTag?.let { "_$it" } ?: "") + ".cfg") }) {
+                Text("EXPORT…")
+            }
+        }
+    }
+    if (vm.scFeedback.isNotEmpty()) {
+        Text(
+            vm.scFeedback, fontSize = 11.sp, color = if (vm.scError) Red else muted,
+            modifier = Modifier.padding(top = 6.dp),
         )
     }
 }

@@ -12,6 +12,10 @@ object Svk {
     /** One entry: a process class (e.g. "BTLD", "CAFD"), its id, and a main.sub.patch version. */
     data class Entry(val processClass: String, val classCode: Int, val id: Long, val main: Int, val sub: Int, val patch: Int) {
         val idHex: String get() = "%08X".format(id)
+
+        /** "main.sub.patch", the same shape PSdZData pool filenames use after the id
+         * (e.g. `swfl_0000271a.bin.007_051_002` -> `007.051.002`). */
+        val version: String get() = "%03d.%03d.%03d".format(main, sub, patch)
     }
 
     data class Svk(val svkVersion: Int, val progDepChecked: Int, val entries: List<Entry>) {
@@ -19,6 +23,12 @@ object Svk {
          * property (there should only ever be one, but this matches it exactly rather than assuming). */
         val bootloader: Entry? get() = entries.filter { it.processClass == "BTLD" }
             .minWithOrNull(compareBy({ it.id }, { it.main }, { it.sub }, { it.patch }))
+
+        /** First entry matching [processClass] and [id] exactly - e.g. the core SWFL build a captured
+         * `starter.cfg` is tagged with (see [FlashWrite.readCoreSwflVersion]). Null if this car's SVK
+         * doesn't carry that id (nothing is guessed; the caller treats the file as untagged). */
+        fun entry(processClass: String, id: Long): Entry? =
+            entries.firstOrNull { it.processClass == processClass && it.id == id }
     }
 
     private val PROCESS_CLASS = mapOf(

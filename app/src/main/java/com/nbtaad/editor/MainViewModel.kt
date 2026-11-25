@@ -1389,6 +1389,83 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (detect.hu == null) "No vehicle known yet. Looking for the vehicle…" else "No connection. Looking for the vehicle again…"
 
     // =====================================================================
+    // starter.cfg: reading the car's own live file (research step for the SSH-unlock feature).
+    // Needs SSH already open (OPEN SSH / Bavarian) - this reads over that same session. The actual
+    // SSH-unlock write goes over UDS (FlashWrite) and isn't wired to a button yet.
+    // =====================================================================
+
+    private val starterCfgStore by lazy { com.nbtaad.editor.net.StarterCfgStore(ctx) }
+
+    var scBusy by mutableStateOf(false)
+    var scError by mutableStateOf(false)
+    var scFeedback by mutableStateOf("")
+    var scHasStock by mutableStateOf(starterCfgStore.hasStockFile())
+    var scTag by mutableStateOf(starterCfgStore.readTag())
+
+    fun readStarterCfg() {
+        if (scBusy) return
+        scBusy = true
+        scError = false
+        scFeedback = "Connecting…"
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                NetworkBinder.bindToLocalNetwork(ctx)
+                val found = runOnHeadUnit(
+                    { detect.hu }, { rescanForHost() },
+                    onRescan = { scFeedback = lookingNote() },
+                    whyNot = { scanProblem },
+                ) { hu -> com.nbtaad.editor.net.StarterCfgRemote.readLive(hu) { scFeedback = it } }
+                when (found) {
+                    is com.nbtaad.editor.net.StarterCfgRemote.ReadResult.Found -> {
+                        // Best-effort: the file is already in hand either way, so a failed/slow SVK read
+                        // (a separate UDS connection to the gateway) never blocks keeping it.
+                        val tag = detect.zgw?.let { gw ->
+                            try {
+                                com.nbtaad.editor.net.FlashWrite.readCoreSwflVersion(gw)
+                            } catch (e: Exception) {
+                                AppLog.e("StarterCfg", "Reading the build tag failed", e)
+                                null
+                            }
+                        }
+                        starterCfgStore.importStock(found.bytes, tag)
+                        scHasStock = true
+                        scTag = tag
+                        scFeedback = "Read ${found.bytes.size} bytes from ${found.path}" +
+                            (tag?.let { " (build $it)." } ?: " (build unknown - the SVK could not be read).")
+                    }
+                    com.nbtaad.editor.net.StarterCfgRemote.ReadResult.NotFound -> {
+                        scError = true
+                        scFeedback = "starter.cfg was not found at either of the usual paths."
+                    }
+                }
+            } catch (e: Exception) {
+                AppLog.e("StarterCfg", "Reading starter.cfg failed", e)
+                scError = true
+                scFeedback = "Read failed: ${friendlyError(e)}"
+            } finally {
+                scBusy = false
+            }
+        }
+    }
+
+    /** Writes the stock file already in [starterCfgStore] to the file the person chose. */
+    fun exportStarterCfgTo(uri: android.net.Uri) {
+        val bytes = starterCfgStore.readStock() ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                ctx.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+                    ?: throw java.io.IOException("The phone would not open that file for writing.")
+                scFeedback = "Exported ${bytes.size} bytes."
+                scError = false
+            } catch (e: Exception) {
+                AppLog.e("StarterCfg", "Exporting starter.cfg failed", e)
+                scError = true
+                scFeedback = "Export failed: ${e.message ?: e.javaClass.simpleName}"
+            }
+        }
+    }
+
+    // =====================================================================
     // Navigation between the screens
     // =====================================================================
 

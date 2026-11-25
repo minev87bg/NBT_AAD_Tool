@@ -66,6 +66,30 @@ object FlashWrite {
         }
     }
 
+    /** The SGBM id psdzdata-manifest.md tags "NBT Core / Media / Connectivity / Nav - the OPT_DEBUG
+     * flash target": the build identity a captured `starter.cfg` is labeled with, so a stock file read
+     * off one car can later be recognized as matching another car's exact same software. */
+    private const val CORE_SWFL_ID = 0x0000271AL
+
+    /**
+     * READ-ONLY: reads the SVK and returns the core SWFL (`0000271A`)'s version - purely a label for
+     * whatever `starter.cfg` gets read alongside it (see [StarterCfgRemote]/[StarterCfgStore]). Null if
+     * the SVK can't be read or has no such entry; nothing here writes anything or gates a flash.
+     */
+    fun readCoreSwflVersion(zgwIp: String): String? {
+        return try {
+            Hsfz.FlashSession(zgwIp).use { s ->
+                val o = s.readDataByIdentifier(0xF101, timeoutMs = 5000)
+                val data = (o as? Hsfz.FlashSession.Outcome.Positive)?.data ?: return null
+                val svk = if (data.size > 3) Svk.decode(data.copyOfRange(3, data.size)) else null
+                svk?.entry("SWFL", CORE_SWFL_ID)?.version
+            }
+        } catch (e: Exception) {
+            AppLog.e("Flash", "Reading the core SWFL version failed", e)
+            null
+        }
+    }
+
     /**
      * Writes [containerBytes] (a no-signature file-copy container - see [FlashContainer]) to the head
      * unit. Confirms the connected VIN is [ownVin] before touching anything, authenticates with
