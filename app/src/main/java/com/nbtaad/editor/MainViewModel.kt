@@ -1399,8 +1399,34 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var scBusy by mutableStateOf(false)
     var scError by mutableStateOf(false)
     var scFeedback by mutableStateOf("")
-    var scHasStock by mutableStateOf(starterCfgStore.hasStockFile())
-    var scTag by mutableStateOf(starterCfgStore.readTag())
+    var scLibraryTags by mutableStateOf(starterCfgStore.tags())
+    var scCheckingBuild by mutableStateOf(false)
+    var scCurrentTag by mutableStateOf<String?>(null)
+    var scCurrentHasStock by mutableStateOf(false)
+
+    /**
+     * READ-ONLY: confirms which SWFL build the connected car is on - over UDS to the gateway, no SSH
+     * needed - and whether the library already has a matching starter.cfg for it. Called whenever the
+     * Prepare screen sees a gateway connection, so the unlock/lock buttons only ever show once this
+     * exact unit's build is actually confirmed to be in the library, not just "some build is."
+     */
+    fun checkBuild() {
+        val ip = detect.zgw ?: return
+        if (scCheckingBuild) return
+        scCheckingBuild = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                NetworkBinder.bindToLocalNetwork(ctx)
+                val tag = com.nbtaad.editor.net.FlashWrite.readCoreSwflVersion(ip)
+                scCurrentTag = tag
+                scCurrentHasStock = tag != null && starterCfgStore.hasStock(tag)
+            } catch (e: Exception) {
+                AppLog.e("StarterCfg", "Checking this unit's build failed", e)
+            } finally {
+                scCheckingBuild = false
+            }
+        }
+    }
 
     fun readStarterCfg() {
         if (scBusy) return
@@ -1417,8 +1443,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 ) { hu -> com.nbtaad.editor.net.StarterCfgRemote.readLive(hu) { scFeedback = it } }
                 when (found) {
                     is com.nbtaad.editor.net.StarterCfgRemote.ReadResult.Found -> {
-                        // Best-effort: the file is already in hand either way, so a failed/slow SVK read
-                        // (a separate UDS connection to the gateway) never blocks keeping it.
                         val tag = detect.zgw?.let { gw ->
                             try {
                                 com.nbtaad.editor.net.FlashWrite.readCoreSwflVersion(gw)
@@ -1427,11 +1451,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                                 null
                             }
                         }
-                        starterCfgStore.importStock(found.bytes, tag)
-                        scHasStock = true
-                        scTag = tag
-                        scFeedback = "Read ${found.bytes.size} bytes from ${found.path}" +
-                            (tag?.let { " (build $it)." } ?: " (build unknown - the SVK could not be read).")
+                        if (tag == null) {
+                            // Refuse rather than guess a key for the library: an entry nobody can match
+                            // against later is worse than no entry at all.
+                            scError = true
+                            scFeedback = "Read ${found.bytes.size} bytes from ${found.path}, but this unit's " +
+                                "build couldn't be confirmed (SVK read failed) - not added to the library. Try again."
+                        } else {
+                            starterCfgStore.importStock(found.bytes, tag)
+                            scLibraryTags = starterCfgStore.tags()
+                            scCurrentTag = tag
+                            scCurrentHasStock = true
+                            scError = false
+                            scFeedback = "Read ${found.bytes.size} bytes from ${found.path} (build $tag) - added to the library."
+                        }
                     }
                     com.nbtaad.editor.net.StarterCfgRemote.ReadResult.NotFound -> {
                         scError = true
@@ -1448,9 +1481,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Writes the stock file already in [starterCfgStore] to the file the person chose. */
+    /** Writes the library's stock file for [scCurrentTag]'s build to the file the person chose. */
     fun exportStarterCfgTo(uri: android.net.Uri) {
-        val bytes = starterCfgStore.readStock() ?: return
+        val tag = scCurrentTag ?: return
+        val bytes = starterCfgStore.readStock(tag) ?: return
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 ctx.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
@@ -1477,6 +1511,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var sshFlashFeedback by mutableStateOf("")
     var sshFlashLog by mutableStateOf<List<com.nbtaad.editor.net.WriteStep>>(emptyList())
 
+    /**
+     * The library lookup that matters is done here, live, right before flashing - not from
+     * [scCurrentTag]'s last-checked value, which could be stale (a different unit since the screen
+     * last ran [checkBuild], or the same unit after a firmware update). A fresh, confirmed build tag
+     * is what the stock file is matched against every single time; no match, no flash.
+     */
     fun applySshToggle(target: com.nbtaad.editor.net.StarterCfgPatch.Target) {
         confirmSshUnlock = false
         confirmSshLock = false
@@ -1484,16 +1524,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (sshFlashBusy) return
         val ip = detect.zgw
         val vin = detect.vin
-        val stock = starterCfgStore.readStock()
         val l3Key = codingKeyStore.readL3Key()
         if (ip == null || vin == null) {
             sshFlashError = true
             sshFlashFeedback = "No vehicle connection right now."
-            return
-        }
-        if (stock == null) {
-            sshFlashError = true
-            sshFlashFeedback = "No stock starter.cfg stored yet - read it first."
             return
         }
         if (l3Key == null) {
@@ -1501,14 +1535,31 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             sshFlashFeedback = "The signing key (L3) isn't loaded yet - see Signing tools."
             return
         }
-        when (val prep = com.nbtaad.editor.net.SshUnlock.prepare(stock, target)) {
-            is com.nbtaad.editor.net.SshUnlock.PrepareResult.Ready -> {
-                sshFlashBusy = true
-                sshFlashError = false
-                sshFlashFeedback = if (target == com.nbtaad.editor.net.StarterCfgPatch.Target.UNLOCK) "Unlocking SSH…" else "Locking SSH…"
-                viewModelScope.launch(Dispatchers.IO) {
-                    try {
-                        NetworkBinder.bindToLocalNetwork(ctx)
+        sshFlashBusy = true
+        sshFlashError = false
+        sshFlashFeedback = "Confirming this unit's build…"
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                NetworkBinder.bindToLocalNetwork(ctx)
+                val tag = com.nbtaad.editor.net.FlashWrite.readCoreSwflVersion(ip)
+                scCurrentTag = tag
+                if (tag == null) {
+                    sshFlashError = true
+                    sshFlashFeedback = "Could not confirm this unit's build (SVK read failed) - " +
+                        "refusing to guess which starter.cfg fits it."
+                    return@launch
+                }
+                val stock = starterCfgStore.readStock(tag)
+                scCurrentHasStock = stock != null
+                if (stock == null) {
+                    sshFlashError = true
+                    sshFlashFeedback = "No starter.cfg in the library for build $tag yet. Read it here " +
+                        "first (needs SSH open), or import one captured for this build."
+                    return@launch
+                }
+                when (val prep = com.nbtaad.editor.net.SshUnlock.prepare(stock, target)) {
+                    is com.nbtaad.editor.net.SshUnlock.PrepareResult.Ready -> {
+                        sshFlashFeedback = if (target == com.nbtaad.editor.net.StarterCfgPatch.Target.UNLOCK) "Unlocking SSH…" else "Locking SSH…"
                         val outcome = com.nbtaad.editor.net.FlashWrite.flash(ip, prep.container, l3Key, vin)
                         sshFlashLog = outcome.steps
                         for (s in outcome.steps) {
@@ -1523,22 +1574,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         } else {
                             "The flash did not complete - see the log."
                         }
-                    } catch (e: Exception) {
-                        AppLog.e("SshUnlock", "Flashing starter.cfg failed", e)
+                    }
+                    is com.nbtaad.editor.net.SshUnlock.PrepareResult.AlreadyDone -> {
+                        sshFlashError = false
+                        sshFlashFeedback = if (target == com.nbtaad.editor.net.StarterCfgPatch.Target.UNLOCK) "Already unlocked." else "Already locked."
+                    }
+                    is com.nbtaad.editor.net.SshUnlock.PrepareResult.PatchFailed -> {
                         sshFlashError = true
-                        sshFlashFeedback = "Failed: ${friendlyError(e)}"
-                    } finally {
-                        sshFlashBusy = false
+                        sshFlashFeedback = prep.reason
                     }
                 }
-            }
-            is com.nbtaad.editor.net.SshUnlock.PrepareResult.AlreadyDone -> {
-                sshFlashError = false
-                sshFlashFeedback = if (target == com.nbtaad.editor.net.StarterCfgPatch.Target.UNLOCK) "Already unlocked." else "Already locked."
-            }
-            is com.nbtaad.editor.net.SshUnlock.PrepareResult.PatchFailed -> {
+            } catch (e: Exception) {
+                AppLog.e("SshUnlock", "Flashing starter.cfg failed", e)
                 sshFlashError = true
-                sshFlashFeedback = prep.reason
+                sshFlashFeedback = "Failed: ${friendlyError(e)}"
+            } finally {
+                sshFlashBusy = false
             }
         }
     }

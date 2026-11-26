@@ -356,23 +356,46 @@ private fun StarterCfgResearchSection(vm: MainViewModel) {
         ActivityResultContracts.CreateDocument("application/octet-stream"),
     ) { uri -> if (uri != null) vm.exportStarterCfgTo(uri) }
 
+    // Every NBT EVO build can have a different starter.cfg, so the library is checked against this
+    // exact unit - not "some build is on file" - as soon as a gateway connection appears.
+    androidx.compose.runtime.LaunchedEffect(vm.detect.zgw) {
+        if (vm.detect.zgw != null) vm.checkBuild()
+    }
+
     Spacer(Modifier.height(14.dp))
     Text(
-        "Read the car's current starter.cfg once, then unlock or lock SSH/telnet anytime from the stored copy.",
+        "Unlock/lock flashes a starter.cfg matched to this exact unit's software build - never one " +
+            "borrowed from a different build. Read it here once per build (needs SSH open); after " +
+            "that, any unit on that same build can unlock or lock straight from the library.",
         fontSize = 11.sp, color = muted,
     )
     Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         OutlinedButton(onClick = { vm.readStarterCfg() }, enabled = !vm.scBusy) {
             Text(if (vm.scBusy) "READING…" else "READ STARTER.CFG")
         }
-        if (vm.scHasStock) {
+        if (vm.scCurrentHasStock) {
             Spacer(Modifier.width(8.dp))
-            OutlinedButton(onClick = { saver.launch("starter" + (vm.scTag?.let { "_$it" } ?: "") + ".cfg") }) {
+            OutlinedButton(onClick = { saver.launch("starter" + (vm.scCurrentTag?.let { "_$it" } ?: "") + ".cfg") }) {
                 Text("EXPORT…")
             }
         }
     }
-    if (vm.scHasStock) {
+    Text(
+        when {
+            vm.scCheckingBuild -> "Checking this unit's build…"
+            vm.scCurrentTag == null -> "This unit's build isn't confirmed yet."
+            vm.scCurrentHasStock -> "This unit is build ${vm.scCurrentTag} - in the library, ready to unlock/lock."
+            else -> "This unit is build ${vm.scCurrentTag} - not in the library yet. Read it here first (needs SSH open)."
+        },
+        fontSize = 11.sp, color = muted, modifier = Modifier.padding(top = 6.dp),
+    )
+    if (vm.scLibraryTags.isNotEmpty()) {
+        Text(
+            "Library: " + vm.scLibraryTags.joinToString(", "),
+            fontSize = 11.sp, color = muted, modifier = Modifier.padding(top = 2.dp),
+        )
+    }
+    if (vm.scCurrentHasStock) {
         Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Button(onClick = { vm.sshUnlockChecked = false; vm.confirmSshUnlock = true }, enabled = !vm.sshFlashBusy) {
                 Text(if (vm.sshFlashBusy) "WORKING…" else "UNLOCK SSH NOW")
