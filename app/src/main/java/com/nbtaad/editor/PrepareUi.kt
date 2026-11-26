@@ -135,7 +135,6 @@ fun PrepareScreen(vm: MainViewModel) {
         when {
             vm.detect.ssh -> {
                 Text("SSH is open.", fontSize = 13.sp, color = Green)
-                StarterCfgResearchSection(vm)
             }
             vm.detect.zgw != null -> {
                 Text(
@@ -155,6 +154,16 @@ fun PrepareScreen(vm: MainViewModel) {
                     fontSize = 12.sp, color = muted,
                 )
             }
+        }
+
+        // Unlocking/locking is a UDS write over the gateway, same as coding - it needs vm.detect.zgw,
+        // not SSH. Only the READ/EXPORT step inside this section needs SSH (and fails clearly if it
+        // isn't open when tapped). Kept reachable here, not nested under the vm.detect.ssh branch
+        // above, specifically so a car left mid-bootloader after an interrupted flash - where SSH is
+        // down because no application is booted, but the gateway still answers UDS - can be retried
+        // from here without SSH.
+        if (vm.detect.zgw != null) {
+            StarterCfgResearchSection(vm)
         }
 
         if (!(vm.hasNcdKey && vm.hasL3Key)) {
