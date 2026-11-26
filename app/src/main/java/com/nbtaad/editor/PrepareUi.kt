@@ -156,15 +156,13 @@ fun PrepareScreen(vm: MainViewModel) {
             }
         }
 
-        // Unlocking/locking is a UDS write over the gateway, same as coding - it needs vm.detect.zgw,
-        // not SSH. Only the READ/EXPORT step inside this section needs SSH (and fails clearly if it
-        // isn't open when tapped). Kept reachable here, not nested under the vm.detect.ssh branch
-        // above, specifically so a car left mid-bootloader after an interrupted flash - where SSH is
-        // down because no application is booted, but the gateway still answers UDS - can be retried
-        // from here without SSH.
-        if (vm.detect.zgw != null) {
-            StarterCfgResearchSection(vm)
-        }
+        // Unlocking/locking is a UDS write over the gateway, same as coding, and needs vm.detect.zgw;
+        // the live READ step needs SSH (and fails clearly if it isn't open when tapped). Neither gates
+        // the section as a whole, though: importing a starter.cfg straight out of a SWFL file needs
+        // no car connection at all, so the section always renders - a car left mid-bootloader after an
+        // interrupted flash (SSH down, gateway still answering UDS) can still retry from here, and the
+        // library can be built up offline with nothing plugged in.
+        StarterCfgResearchSection(vm)
 
         if (!(vm.hasNcdKey && vm.hasL3Key)) {
             Spacer(Modifier.height(16.dp))
@@ -401,6 +399,7 @@ private fun StarterCfgResearchSection(vm: MainViewModel) {
     }
     Text(
         when {
+            vm.detect.zgw == null -> "No vehicle connected - import files below, or connect one to unlock/lock it."
             vm.scCheckingBuild -> "Checking this unit's build…"
             vm.scCurrentTag == null -> "This unit's build isn't confirmed yet."
             vm.scCurrentHasStock -> "This unit is build ${vm.scCurrentTag} - in the library, ready to unlock/lock."
