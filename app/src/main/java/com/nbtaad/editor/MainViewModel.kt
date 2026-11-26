@@ -1431,11 +1431,26 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 } ?: throw java.io.IOException("The phone would not open that file for reading.")
                 when (found) {
                     is com.nbtaad.editor.net.ContainerExtract.Result.Found -> {
-                        starterCfgStore.importStock(found.bytes, tag)
+                        // PSdZData carries this payload as Intel HEX, not a plain file - one more decode
+                        // step a live SSH read never needs (that's already a plain file on the car).
+                        val hex = com.nbtaad.editor.net.IntelHex.looksLikeIntelHex(found.bytes)
+                        val payload = if (hex) {
+                            try {
+                                com.nbtaad.editor.net.IntelHex.decode(found.bytes)
+                            } catch (e: IllegalArgumentException) {
+                                scError = true
+                                scFeedback = "Found a starter.cfg payload, but decoding it as Intel HEX failed: ${e.message}"
+                                return@launch
+                            }
+                        } else {
+                            found.bytes
+                        }
+                        starterCfgStore.importStock(payload, tag)
                         scLibraryTags = starterCfgStore.tags()
                         if (scCurrentTag == tag) scCurrentHasStock = true
                         scError = false
-                        scFeedback = "Extracted ${found.bytes.size} bytes of starter.cfg (build $tag) - added to the library."
+                        scFeedback = "Extracted ${payload.size} bytes of starter.cfg (build $tag)" +
+                            (if (hex) " - decoded from Intel HEX" else "") + " - added to the library."
                     }
                     com.nbtaad.editor.net.ContainerExtract.Result.NotFound -> {
                         scError = true
