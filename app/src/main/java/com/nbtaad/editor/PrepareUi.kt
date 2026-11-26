@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -334,9 +335,10 @@ fun SigningToolsScreen(vm: MainViewModel) {
 }
 
 /**
- * Research step for the SSH-unlock feature, not the feature itself: reads the car's live
- * `starter.cfg` over the SSH window that's already open, and lets the owner export it to send along.
- * Needs no new unlock - [vm.detect.ssh] is already true wherever this is shown.
+ * SSH unlock/lock. Reads the car's live `starter.cfg` over the SSH window that's already open (or
+ * use a file read another way - the stored copy is all this needs from here on), then UNLOCK/LOCK
+ * flash the OPT_DEBUG toggle back over UDS - never over SSH. [vm.detect.ssh] is already true
+ * wherever this is shown, for the READ step only.
  */
 @Composable
 private fun StarterCfgResearchSection(vm: MainViewModel) {
@@ -347,7 +349,7 @@ private fun StarterCfgResearchSection(vm: MainViewModel) {
 
     Spacer(Modifier.height(14.dp))
     Text(
-        "Research: read the car's current starter.cfg (building the SSH-unlock feature) and export it to send along.",
+        "Read the car's current starter.cfg once, then unlock or lock SSH/telnet anytime from the stored copy.",
         fontSize = 11.sp, color = muted,
     )
     Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -361,10 +363,98 @@ private fun StarterCfgResearchSection(vm: MainViewModel) {
             }
         }
     }
+    if (vm.scHasStock) {
+        Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Button(onClick = { vm.sshUnlockChecked = false; vm.confirmSshUnlock = true }, enabled = !vm.sshFlashBusy) {
+                Text(if (vm.sshFlashBusy) "WORKING…" else "UNLOCK SSH NOW")
+            }
+            Spacer(Modifier.width(8.dp))
+            // Interim placement - the plan is to move this to the three-dot menu (Lock sets the head
+            // unit back to normal from anywhere); living here for now so it's reachable while testing.
+            OutlinedButton(onClick = { vm.sshUnlockChecked = false; vm.confirmSshLock = true }, enabled = !vm.sshFlashBusy) {
+                Text("LOCK SSH")
+            }
+        }
+    }
     if (vm.scFeedback.isNotEmpty()) {
         Text(
             vm.scFeedback, fontSize = 11.sp, color = if (vm.scError) Red else muted,
             modifier = Modifier.padding(top = 6.dp),
+        )
+    }
+    if (vm.sshFlashFeedback.isNotEmpty()) {
+        Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(vm.sshFlashFeedback, fontSize = 11.sp, color = if (vm.sshFlashError) Red else muted)
+            if (vm.sshFlashLog.isNotEmpty()) {
+                Spacer(Modifier.width(8.dp))
+                TextButton(onClick = { vm.showSshFlashLog = true }) { Text("LOG", fontSize = 11.sp) }
+            }
+        }
+    }
+
+    if (vm.confirmSshUnlock || vm.confirmSshLock) {
+        val target = if (vm.confirmSshUnlock) com.nbtaad.editor.net.StarterCfgPatch.Target.UNLOCK
+        else com.nbtaad.editor.net.StarterCfgPatch.Target.LOCK
+        AlertDialog(
+            onDismissRequest = { vm.confirmSshUnlock = false; vm.confirmSshLock = false },
+            title = { Text(if (target == com.nbtaad.editor.net.StarterCfgPatch.Target.UNLOCK) "Unlock SSH?" else "Lock SSH?") },
+            text = {
+                Column {
+                    Text(
+                        if (target == com.nbtaad.editor.net.StarterCfgPatch.Target.UNLOCK)
+                            "Turns on the head unit's SSH/telnet access, so it's reachable anytime over WiFi without plugging in. The head unit restarts once this is written."
+                        else
+                            "Turns SSH/telnet back off, restoring the head unit to how it left the factory. The head unit restarts once this is written.",
+                        fontSize = 13.sp,
+                    )
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = 14.dp).clickable { vm.sshUnlockChecked = !vm.sshUnlockChecked },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(checked = vm.sshUnlockChecked, onCheckedChange = { vm.sshUnlockChecked = it })
+                        Text("I understand the head unit will restart.", fontSize = 13.sp)
+                    }
+                    TextButton(onClick = { vm.showSshUnlockInfo = true }, modifier = Modifier.padding(top = 4.dp)) {
+                        Text("More info", fontSize = 12.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { vm.applySshToggle(target) }, enabled = vm.sshUnlockChecked) { Text("INSTALL") }
+            },
+            dismissButton = {
+                TextButton(onClick = { vm.confirmSshUnlock = false; vm.confirmSshLock = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    if (vm.showSshUnlockInfo) {
+        AlertDialog(
+            onDismissRequest = { vm.showSshUnlockInfo = false },
+            title = { Text("How this works") },
+            text = {
+                Text(
+                    "This flips one package's state inside the head unit's own starter.cfg (OPT_DEBUG: " +
+                        "STOP ↔ RUN) - the file that decides which background services start at boot. " +
+                        "RUN starts the same services (devc-pty, inetd, qconn, qnxcommd, srm) that an " +
+                        "already-unlocked unit shows running; nothing else in the file changes.\n\n" +
+                        "It's written the normal way any BMW software update is written - over the " +
+                        "diagnostic connection, signed with your own recovered key - not over SSH.\n\n" +
+                        "While SSH is unlocked, the head unit carries an expected diagnostic fault code " +
+                        "for it; locking it again clears that fault.",
+                    fontSize = 13.sp,
+                )
+            },
+            confirmButton = { TextButton(onClick = { vm.showSshUnlockInfo = false }) { Text("CLOSE") } },
+        )
+    }
+
+    if (vm.showSshFlashLog) {
+        AlertDialog(
+            onDismissRequest = { vm.showSshFlashLog = false },
+            title = { Text("SSH unlock/lock log") },
+            text = { WriteLogConsole(vm.sshFlashLog, maxHeight = 320.dp) },
+            confirmButton = { TextButton(onClick = { vm.showSshFlashLog = false }) { Text("CLOSE") } },
         )
     }
 }

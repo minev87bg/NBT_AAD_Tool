@@ -1465,6 +1465,84 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // --- The actual SSH unlock/lock: flashes the patched stock file over UDS, not SSH. ---
+
+    var confirmSshUnlock by mutableStateOf(false)
+    var confirmSshLock by mutableStateOf(false)
+    var sshUnlockChecked by mutableStateOf(false)
+    var showSshUnlockInfo by mutableStateOf(false)
+    var showSshFlashLog by mutableStateOf(false)
+    var sshFlashBusy by mutableStateOf(false)
+    var sshFlashError by mutableStateOf(false)
+    var sshFlashFeedback by mutableStateOf("")
+    var sshFlashLog by mutableStateOf<List<com.nbtaad.editor.net.WriteStep>>(emptyList())
+
+    fun applySshToggle(target: com.nbtaad.editor.net.StarterCfgPatch.Target) {
+        confirmSshUnlock = false
+        confirmSshLock = false
+        sshUnlockChecked = false
+        if (sshFlashBusy) return
+        val ip = detect.zgw
+        val vin = detect.vin
+        val stock = starterCfgStore.readStock()
+        val l3Key = codingKeyStore.readL3Key()
+        if (ip == null || vin == null) {
+            sshFlashError = true
+            sshFlashFeedback = "No vehicle connection right now."
+            return
+        }
+        if (stock == null) {
+            sshFlashError = true
+            sshFlashFeedback = "No stock starter.cfg stored yet - read it first."
+            return
+        }
+        if (l3Key == null) {
+            sshFlashError = true
+            sshFlashFeedback = "The signing key (L3) isn't loaded yet - see Signing tools."
+            return
+        }
+        when (val prep = com.nbtaad.editor.net.SshUnlock.prepare(stock, target)) {
+            is com.nbtaad.editor.net.SshUnlock.PrepareResult.Ready -> {
+                sshFlashBusy = true
+                sshFlashError = false
+                sshFlashFeedback = if (target == com.nbtaad.editor.net.StarterCfgPatch.Target.UNLOCK) "Unlocking SSH…" else "Locking SSH…"
+                viewModelScope.launch(Dispatchers.IO) {
+                    try {
+                        NetworkBinder.bindToLocalNetwork(ctx)
+                        val outcome = com.nbtaad.editor.net.FlashWrite.flash(ip, prep.container, l3Key, vin)
+                        sshFlashLog = outcome.steps
+                        for (s in outcome.steps) {
+                            if (s.ok) AppLog.i("SshUnlock", "${s.name}: ${s.detail}") else AppLog.w("SshUnlock", "${s.name}: ${s.detail}")
+                        }
+                        sshFlashError = !outcome.success
+                        sshFlashFeedback = if (outcome.success) {
+                            if (target == com.nbtaad.editor.net.StarterCfgPatch.Target.UNLOCK)
+                                "SSH unlocked. The head unit will carry an expected fault code until it's locked again."
+                            else
+                                "SSH locked back to stock."
+                        } else {
+                            "The flash did not complete - see the log."
+                        }
+                    } catch (e: Exception) {
+                        AppLog.e("SshUnlock", "Flashing starter.cfg failed", e)
+                        sshFlashError = true
+                        sshFlashFeedback = "Failed: ${friendlyError(e)}"
+                    } finally {
+                        sshFlashBusy = false
+                    }
+                }
+            }
+            is com.nbtaad.editor.net.SshUnlock.PrepareResult.AlreadyDone -> {
+                sshFlashError = false
+                sshFlashFeedback = if (target == com.nbtaad.editor.net.StarterCfgPatch.Target.UNLOCK) "Already unlocked." else "Already locked."
+            }
+            is com.nbtaad.editor.net.SshUnlock.PrepareResult.PatchFailed -> {
+                sshFlashError = true
+                sshFlashFeedback = prep.reason
+            }
+        }
+    }
+
     // =====================================================================
     // Navigation between the screens
     // =====================================================================
