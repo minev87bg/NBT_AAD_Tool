@@ -585,11 +585,15 @@ object Hsfz {
          * during the write; `sub=0x00` restores it. `commType=0x01` (normalCommunicationMessages) both ways. */
         fun commControl(sub: Int, commType: Int = 0x01): Outcome = exchange(byteArrayOf(0x28, sub.toByte(), commType.toByte()))
 
-        /** `27 11` - flash-level requestSeed. Unlike [CodingSession.securityAccessSeedCoding], `flash_plan.py`
-         * shows this sent bare (no testerId suffix) - not yet confirmed on this car whether that holds here
-         * too; if `27 11` comes back NRC 0x13 the way coding's bare `27 01` did, the same 4-byte-testerId
-         * fix is the first thing to try (see [FlashWrite]). */
-        fun securityAccessSeedFlash(): Outcome = exchange(byteArrayOf(0x27, 0x11))
+        /**
+         * `27 11` - flash-level requestSeed. `flash_plan.py` shows this sent bare (no testerId suffix),
+         * but confirmed on-car 2026-11-26: a bare `27 11` gets NRC 0x13 (incorrectMessageLengthOrInvalidFormat)
+         * here too - the same symptom [CodingSession.securityAccessSeedCoding] hit and fixed the same way.
+         * This ECU wants the 4-byte testerId appended at the flash level as well, whatever `flash_plan.py`'s
+         * own target expected. [testerId] defaults to all-zero, matching the coding-level fix.
+         */
+        fun securityAccessSeedFlash(testerId: ByteArray = ByteArray(4)): Outcome =
+            exchange(byteArrayOf(0x27, 0x11) + testerId)
 
         /** `27 12 <key>` - flash-level sendKey. [key] is the full wire payload from [L3.signSeed] (the
          * `00000020` word-count prefix plus the 128-byte, per-word-swapped signature - 132 bytes total),
