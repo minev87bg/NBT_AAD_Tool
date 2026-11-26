@@ -351,10 +351,21 @@ fun SigningToolsScreen(vm: MainViewModel) {
  */
 @Composable
 private fun StarterCfgResearchSection(vm: MainViewModel) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val saver = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/octet-stream"),
     ) { uri -> if (uri != null) vm.exportStarterCfgTo(uri) }
+    // Picks a raw SWFL pool file (e.g. swfl_0000271a.bin.007_051_002) straight out of the owner's own
+    // PSdZData - no live car, no SSH, no PC step - and pulls starter.cfg out of it on-device.
+    val containerPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            val name = androidx.documentfile.provider.DocumentFile.fromSingleUri(ctx, uri)?.name
+            vm.importStarterCfgFromContainer(uri, name)
+        }
+    }
 
     // Every NBT EVO build can have a different starter.cfg, so the library is checked against this
     // exact unit - not "some build is on file" - as soon as a gateway connection appears.
@@ -365,13 +376,21 @@ private fun StarterCfgResearchSection(vm: MainViewModel) {
     Spacer(Modifier.height(14.dp))
     Text(
         "Unlock/lock flashes a starter.cfg matched to this exact unit's software build - never one " +
-            "borrowed from a different build. Read it here once per build (needs SSH open); after " +
-            "that, any unit on that same build can unlock or lock straight from the library.",
+            "borrowed from a different build. Read it here once per build (needs SSH open), or import " +
+            "one straight out of a SWFL pool file from your own PSdZData; after that, any unit on that " +
+            "same build can unlock or lock straight from the library.",
         fontSize = 11.sp, color = muted,
     )
     Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         OutlinedButton(onClick = { vm.readStarterCfg() }, enabled = !vm.scBusy) {
             Text(if (vm.scBusy) "READING…" else "READ STARTER.CFG")
+        }
+        Spacer(Modifier.width(8.dp))
+        OutlinedButton(
+            onClick = { containerPicker.launch(arrayOf("application/octet-stream", "*/*")) },
+            enabled = !vm.scImportBusy,
+        ) {
+            Text(if (vm.scImportBusy) "EXTRACTING…" else "IMPORT SWFL FILE…")
         }
         if (vm.scCurrentHasStock) {
             Spacer(Modifier.width(8.dp))

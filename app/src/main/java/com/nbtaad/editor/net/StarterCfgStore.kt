@@ -67,4 +67,20 @@ class StarterCfgStore(ctx: Context) {
     fun clear(tag: String) {
         fileFor(tag).delete()
     }
+
+    companion object {
+        /**
+         * Parses the SWFL build version out of a PSdZData pool filename - e.g.
+         * `swfl_0000271a.bin.007_051_002` -> `007.051.002`, the same dotted form
+         * [FlashWrite.readCoreSwflVersion] reports from a live SVK read (see `Svk.Entry.version`'s own
+         * doc comment: "the same shape PSdZData pool filenames use after the id"). This is how a
+         * container pulled straight from the owner's own PSdZData - never a live car - gets a tag that
+         * will actually match a real unit of that build later. Null if the filename carries no
+         * recognizable `NNN_NNN_NNN` version suffix - never guessed.
+         */
+        fun swflVersionFromFilename(name: String): String? {
+            val m = Regex("""(\d{3})_(\d{3})_(\d{3})(?:\.[^./]*)?$""").find(name) ?: return null
+            return "${m.groupValues[1]}.${m.groupValues[2]}.${m.groupValues[3]}"
+        }
+    }
 }

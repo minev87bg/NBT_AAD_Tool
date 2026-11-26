@@ -1403,6 +1403,54 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var scCheckingBuild by mutableStateOf(false)
     var scCurrentTag by mutableStateOf<String?>(null)
     var scCurrentHasStock by mutableStateOf(false)
+    var scImportBusy by mutableStateOf(false)
+
+    /**
+     * Pulls `starter.cfg` straight out of a SWFL pool file from the owner's own PSdZData (e.g.
+     * `swfl_0000271a.bin.007_051_002`) and adds it to the library - no live car, no SSH, no PC/Python
+     * step, matching the toolkit's own documented alternative to a live read. The build tag is parsed
+     * from the file's own name, the same scheme PSdZData itself uses - refuses rather than guesses if
+     * that fails, same as every other path into this library.
+     */
+    fun importStarterCfgFromContainer(uri: android.net.Uri, displayName: String?) {
+        if (scImportBusy) return
+        scImportBusy = true
+        scError = false
+        scFeedback = "Reading…"
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val tag = displayName?.let { com.nbtaad.editor.net.StarterCfgStore.swflVersionFromFilename(it) }
+                if (tag == null) {
+                    scError = true
+                    scFeedback = "Couldn't find a build version (like 007_051_002) in that file's name - " +
+                        "rename it to match the PSdZData convention (e.g. swfl_0000271a.bin.007_051_002) and try again."
+                    return@launch
+                }
+                val found = ctx.contentResolver.openInputStream(uri)?.use { input ->
+                    com.nbtaad.editor.net.ContainerExtract.extract(input, "starter.cfg")
+                } ?: throw java.io.IOException("The phone would not open that file for reading.")
+                when (found) {
+                    is com.nbtaad.editor.net.ContainerExtract.Result.Found -> {
+                        starterCfgStore.importStock(found.bytes, tag)
+                        scLibraryTags = starterCfgStore.tags()
+                        if (scCurrentTag == tag) scCurrentHasStock = true
+                        scError = false
+                        scFeedback = "Extracted ${found.bytes.size} bytes of starter.cfg (build $tag) - added to the library."
+                    }
+                    com.nbtaad.editor.net.ContainerExtract.Result.NotFound -> {
+                        scError = true
+                        scFeedback = "No starter.cfg payload found inside that file."
+                    }
+                }
+            } catch (e: Exception) {
+                AppLog.e("StarterCfg", "Extracting starter.cfg from a container failed", e)
+                scError = true
+                scFeedback = "Failed: ${friendlyError(e)}"
+            } finally {
+                scImportBusy = false
+            }
+        }
+    }
 
     /**
      * READ-ONLY: confirms which SWFL build the connected car is on - over UDS to the gateway, no SSH
