@@ -47,6 +47,7 @@ import com.nbtaad.editor.net.EnvRemote
 import com.nbtaad.editor.net.Hsfz
 import com.nbtaad.editor.net.Internet
 import com.nbtaad.editor.net.NetworkBinder
+import com.nbtaad.editor.net.PlatformCheck
 import com.nbtaad.editor.net.PortProbe
 import com.nbtaad.editor.net.Reach
 import com.nbtaad.editor.net.Online
@@ -64,10 +65,14 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.coroutines.coroutineContext
 
-enum class Screen { HUB, OPTIONS, INSTALL, EXPERIMENTAL, CONTRIBUTE, WIZARD, TILE, MENULOOK, ADDONS, PREPARE, SIGNING_TOOLS, JJ_AA }
+enum class Screen { HUB, OPTIONS, INSTALL, EXPERIMENTAL, CONTRIBUTE, WIZARD, TILE, MENULOOK, ADDONS, PREPARE, SIGNING_TOOLS, JJ_AA, INSTALL_HUB }
 enum class UpdatePhase { IDLE, CHECKING, CURRENT, AVAILABLE, DOWNLOADING, FAILED }
 enum class SaveStatus { RUNNING, OK, FAIL }
 enum class LineKind { INFO, OK, ERROR }
+
+/** Which head unit generation "Install Android Auto" is talking to - told apart by its bootloader id
+ * (see net/PlatformCheck.kt), or picked by hand when that read doesn't succeed. */
+enum class Platform { EVO, ORIGINAL_NBT }
 
 /** How often [MainViewModel.checkUpdate] repeats itself in the background while the app is open. */
 private const val UPDATE_CHECK_INTERVAL_MS = 10 * 60 * 1000L
@@ -192,9 +197,90 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     val jjAa = com.nbtaad.editor.install.JjAaController(ctx, viewModelScope, host = { detect.hu })
 
-    fun chooseJjAa() {
-        jjAa.visit()
-        screen = Screen.JJ_AA
+    // =====================================================================
+    // Install Android Auto: one hub tile for both head unit generations.
+    // "Check Platform" tells them apart by the live bootloader id (see net/PlatformCheck.kt); if that
+    // read doesn't succeed (no gateway, no answer), the person picks by hand instead. Either way, once
+    // known, the rest of the page is exactly today's Install or NBT Android Auto (original NBT) screen -
+    // their own controllers (inst/jjAa above) are untouched by this.
+    // =====================================================================
+
+    var platform by mutableStateOf<Platform?>(null); private set
+    var platformBusy by mutableStateOf(false); private set
+    var platformMessage by mutableStateOf(""); private set
+    var platformError by mutableStateOf(false); private set
+
+    /** "Install Android Auto": the one hub tile for both generations. */
+    fun chooseInstallHub() {
+        screen = Screen.INSTALL_HUB
+        when (platform) {
+            Platform.EVO -> inst.open()
+            Platform.ORIGINAL_NBT -> jjAa.visit()
+            null -> if (!platformBusy) checkPlatform()
+        }
+    }
+
+    /** CHECK PLATFORM: reads the head unit's live bootloader id over the car's gateway. Read-only, no
+     * SecurityAccess - the same kind of UDS call this app already makes for the VIN and the coding
+     * datagroups, over the same gateway connection jjAa's own gateway lookup already reaches. */
+    fun checkPlatform() {
+        if (platformBusy) return
+        platformBusy = true
+        platformError = false
+        platformMessage = "Looking for the vehicle's gateway…"
+        val known = detect.zgw
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                NetworkBinder.bindToLocalNetwork(ctx)
+                val zgw = known ?: CarDetector.discoverZgw(CarDetector.localNetworks())?.ip
+                if (zgw == null) {
+                    platformError = true
+                    platformMessage = "Could not find the vehicle's gateway, so the platform can't be told " +
+                        "apart automatically. Pick which head unit you have below."
+                    return@launch
+                }
+                platformMessage = "Reading the head unit's bootloader id…"
+                val btld = PlatformCheck.readBtld(zgw)
+                if (btld == null) {
+                    platformError = true
+                    platformMessage = "The head unit did not answer that request, so the platform can't be " +
+                        "told apart automatically. Pick which head unit you have below."
+                } else {
+                    val p = if (btld.id == PlatformCheck.BTLD_EVO) Platform.EVO else Platform.ORIGINAL_NBT
+                    platformMessage = "Bootloader ${btld.idHex}: " +
+                        if (p == Platform.EVO) "NBT EVO." else "the original NBT (not EVO)."
+                    applyPlatform(p)
+                }
+            } catch (e: Exception) {
+                AppLog.w("Platform", "Check platform failed: ${e.javaClass.simpleName}: ${e.message}")
+                platformError = true
+                platformMessage = "Could not check the platform: ${friendlyError(e)}"
+            } finally {
+                platformBusy = false
+            }
+        }
+    }
+
+    /** The manual fallback: picked by hand rather than read from the car. */
+    fun choosePlatform(p: Platform) {
+        platformError = false
+        platformMessage = ""
+        applyPlatform(p)
+    }
+
+    private fun applyPlatform(p: Platform) {
+        platform = p
+        when (p) {
+            Platform.EVO -> inst.open()
+            Platform.ORIGINAL_NBT -> jjAa.visit()
+        }
+    }
+
+    /** "Not this?": the detected/picked platform turned out wrong (a different car this session, say). */
+    fun resetPlatform() {
+        platform = null
+        platformMessage = ""
+        platformError = false
     }
 
     /**
@@ -1433,12 +1519,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** "Change a setting": the unfinished file of the last session is offered first, if there is one. */
     fun chooseSettings() {
         if (storage.hasDraft(carId)) askDraft = true else openOptions(useDraft = false)
-    }
-
-    /** "Install / update": releases, files from the phone, install and the way back. */
-    fun chooseInstall() {
-        inst.open()
-        screen = Screen.INSTALL
     }
 
     /**

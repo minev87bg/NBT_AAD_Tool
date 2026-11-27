@@ -124,6 +124,7 @@ fun App(vm: MainViewModel) {
                 Screen.PREPARE -> PrepareTheme { PrepareScreen(vm) }
                 Screen.SIGNING_TOOLS -> PrepareTheme { SigningToolsScreen(vm) }
                 Screen.JJ_AA -> JjAaTheme { JjAaScreen(vm) }
+                Screen.INSTALL_HUB -> InstallHubScreen(vm)
             }
             ThemeToggle(vm, Modifier.align(Alignment.TopStart).padding(4.dp))
         }

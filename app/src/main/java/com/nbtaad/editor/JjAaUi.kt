@@ -72,9 +72,9 @@ internal fun JjAaTheme(content: @Composable () -> Unit) {
 }
 
 @Composable
-fun JjAaScreen(vm: MainViewModel) {
+fun JjAaScreen(vm: MainViewModel, embedded: Boolean = false) {
     val inst = vm.jjAa
-    BackHandler { vm.backToHub() }
+    if (!embedded) BackHandler { vm.backToHub() }
     val list = rememberLazyListState()
     LaunchedEffect(inst.view) { if (inst.view != null) list.animateScrollToItem(0) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -84,16 +84,20 @@ fun JjAaScreen(vm: MainViewModel) {
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), state = list) {
         item(key = "__head") {
             Column(Modifier.fillMaxWidth()) {
-                Spacer(Modifier.height(52.dp))
-                Text("NBT Android Auto (original NBT)", fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "JayJay3071's Android Auto / CarPlay package, for the OLDER, non-Evo NBT (2012/07-2015/09). This " +
-                        "app only reads the project's own release zip and pushes it over SSH, the same way its own " +
-                        "installer does - it never bundles or redistributes it.",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                if (!embedded) {
+                    Spacer(Modifier.height(52.dp))
+                    Text("NBT Android Auto (original NBT)", fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "JayJay3071's Android Auto / CarPlay package, for the OLDER, non-Evo NBT (2012/07-2015/09). This " +
+                            "app only reads the project's own release zip and pushes it over SSH, the same way its own " +
+                            "installer does - it never bundles or redistributes it.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    Spacer(Modifier.height(4.dp))
+                }
                 TextButton(onClick = { inst.showCredits = true }, contentPadding = PaddingValues(0.dp)) {
                     Text("Credits and licence", fontSize = 12.sp)
                 }
