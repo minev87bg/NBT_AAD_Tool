@@ -21,6 +21,14 @@ object ReleaseLogic {
     const val LIST_URL = "https://api.github.com/repos/$OWNER/$REPO/releases?per_page=30"
     const val PAGE_URL = "https://github.com/$OWNER/$REPO/releases"
 
+    /** The project's own rolling tag for its main installer build (it moves this tag to each new version instead of
+     * tagging a fresh one - see ReleasesApi.releaseByTag for why that needs fetching on its own). */
+    const val ROLLING_TAG = "Installer"
+
+    /** The plain list, newest first by when GitHub says it was published - not necessarily the order the list API
+     * itself returned it in (see ROLLING_TAG), and not relied on by [installable] or anything else here. */
+    fun newestFirst(releases: List<ReleaseInfo>): List<ReleaseInfo> = releases.sortedByDescending { it.published }
+
     /** A release's files that can be part of a build: the build's own files and zip archives (not .nbtpkg or records). */
     fun wanted(r: ReleaseInfo): List<AssetInfo> =
         r.assets.filter { a ->

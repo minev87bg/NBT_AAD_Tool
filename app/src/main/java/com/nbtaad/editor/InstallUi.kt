@@ -399,13 +399,23 @@ fun InstallScreen(vm: MainViewModel) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
                 )
-                Text("Releases on Sq00ky's page", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Releases on Sq00ky's page",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    // Loaded once per screen visit and then kept as-is (so re-opening the page doesn't hit GitHub
+                    // again on its own) - this is the only way back to a fresh list once that first load succeeded,
+                    // for a release that appeared on GitHub after it.
+                    TextButton(onClick = { inst.loadReleases() }, enabled = !inst.releasesBusy) {
+                        Text("Reload", fontSize = 12.sp)
+                    }
+                }
                 if (inst.releasesBusy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 6.dp))
                 if (inst.releasesMessage.isNotEmpty()) {
                     Text(inst.releasesMessage, fontSize = 12.sp, modifier = Modifier.padding(vertical = 4.dp))
-                }
-                if (!inst.releasesBusy && (inst.releases == null || inst.releasesMessage.isNotEmpty())) {
-                    TextButton(onClick = { inst.loadReleases() }) { Text("Load the releases again", fontSize = 12.sp) }
                 }
             }
         }
