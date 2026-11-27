@@ -24,13 +24,13 @@ object SshConfig {
 /** The person stopped a long read. */
 class SshCancelled : IOException("Stopped")
 
-class SshSession(host: String) : AutoCloseable {
+class SshSession(host: String, password: String = SshConfig.PASSWORD) : AutoCloseable {
     private val session: Session
 
     init {
         val jsch = JSch()
         session = jsch.getSession(SshConfig.USER, host, SshConfig.PORT)
-        session.setPassword(SshConfig.PASSWORD)
+        session.setPassword(password)
         val cfg = Properties()
         cfg["StrictHostKeyChecking"] = "no"
         cfg["PreferredAuthentications"] = "password,keyboard-interactive"

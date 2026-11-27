@@ -120,6 +120,17 @@ fun HubScreen(vm: MainViewModel) {
                 "test or check first and a way back. The list grows as add-ons are approved.",
         ) { vm.chooseAddOns() }
         Spacer(Modifier.height(12.dp))
+        WideTile(
+            icon = HubIcon.ADDON,
+            tint = Color(0xFF4F8A5B),
+            title = "NBT Android Auto (original NBT)",
+            subtitle = "A different head unit: 2012/07-2015/09, not NBT Evo",
+            info = "JayJay3071's Android Auto / CarPlay package, for the OLDER, non-Evo BMW NBT - a different head unit " +
+                "generation from everything else in this app. Gets its releases from GitHub (or a file already on the " +
+                "phone) and installs over SSH, the same way its own installer does. The app checks the head unit first " +
+                "and refuses if it does not look like the right hardware.",
+        ) { vm.chooseJjAa() }
+        Spacer(Modifier.height(12.dp))
         HeroTile(
             title = "Browse community for more",
             subtitle = "Issues, builds and tests",

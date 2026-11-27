@@ -64,7 +64,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.coroutines.coroutineContext
 
-enum class Screen { HUB, OPTIONS, INSTALL, EXPERIMENTAL, CONTRIBUTE, WIZARD, TILE, MENULOOK, ADDONS, PREPARE, SIGNING_TOOLS }
+enum class Screen { HUB, OPTIONS, INSTALL, EXPERIMENTAL, CONTRIBUTE, WIZARD, TILE, MENULOOK, ADDONS, PREPARE, SIGNING_TOOLS, JJ_AA }
 enum class UpdatePhase { IDLE, CHECKING, CURRENT, AVAILABLE, DOWNLOADING, FAILED }
 enum class SaveStatus { RUNNING, OK, FAIL }
 enum class LineKind { INFO, OK, ERROR }
@@ -184,6 +184,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** The add-on whose page is open on the Add-ons screen (its catalog id); null: the list. */
     var addOnOpen by mutableStateOf<String?>(null)
+
+    /**
+     * "NBT Android Auto (original NBT)": JayJay3071's package for the OLDER, non-Evo NBT - a different head unit
+     * generation from the rest of this app, on its own screen and its own controller so the two are never mixed up.
+     * See net/JjAa.kt.
+     */
+    val jjAa = com.nbtaad.editor.install.JjAaController(ctx, viewModelScope, host = { detect.hu })
+
+    fun chooseJjAa() {
+        jjAa.visit()
+        screen = Screen.JJ_AA
+    }
 
     /**
      * Keeps [file] on the phone (so it is there without a car and after the app was closed) and opens the page of the
