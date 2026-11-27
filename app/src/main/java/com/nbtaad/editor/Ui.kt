@@ -115,6 +115,7 @@ fun App(vm: MainViewModel) {
                 Screen.PLATFORM -> PlatformScreen(vm)
                 Screen.HUB -> HubScreen(vm)
                 Screen.HUB_NBT1 -> JjAaTheme { HubNbt1Screen(vm) }
+                Screen.HUB_MGU -> JjAaTheme { HubMguScreen(vm) }
                 Screen.OPTIONS -> SettingsTheme { OptionsScreen(vm) }
                 Screen.INSTALL -> InstallTheme { InstallScreen(vm) }
                 Screen.EXPERIMENTAL -> ExperimentalScreen(vm)

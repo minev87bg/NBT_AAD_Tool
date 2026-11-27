@@ -22,6 +22,13 @@ object PlatformCheck {
     /** The bootloader id BMW calls HU_NBT2 - the NBT EVO this app's HeadUnit/InstallController already targets. */
     const val BTLD_EVO = 0x00001FFD
 
+    /** The older, original NBT's own bootloader id - confirmed against robertnisipeanu/mgu-store's mgu7/diag.py,
+     * which lists this project's three BTLD ids side by side. Was previously only inferred as "not EVO". */
+    const val BTLD_ORIGINAL_NBT = 0x00001275
+
+    /** iDrive 7/iDrive 8's own bootloader id (the MGU hardware), from the same cross-reference. */
+    const val BTLD_MGU = 0x00003F36
+
     private const val DID_SVK = 0xF101
     private const val PROCESS_CLASS_BTLD = 6
 

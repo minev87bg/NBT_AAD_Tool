@@ -65,14 +65,14 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.coroutines.coroutineContext
 
-enum class Screen { PLATFORM, HUB, HUB_NBT1, OPTIONS, INSTALL, EXPERIMENTAL, CONTRIBUTE, WIZARD, TILE, MENULOOK, ADDONS, PREPARE, SIGNING_TOOLS, JJ_AA }
+enum class Screen { PLATFORM, HUB, HUB_NBT1, HUB_MGU, OPTIONS, INSTALL, EXPERIMENTAL, CONTRIBUTE, WIZARD, TILE, MENULOOK, ADDONS, PREPARE, SIGNING_TOOLS, JJ_AA }
 enum class UpdatePhase { IDLE, CHECKING, CURRENT, AVAILABLE, DOWNLOADING, FAILED }
 enum class SaveStatus { RUNNING, OK, FAIL }
 enum class LineKind { INFO, OK, ERROR }
 
 /** Which head unit generation "Install Android Auto" is talking to - told apart by its bootloader id
  * (see net/PlatformCheck.kt), or picked by hand when that read doesn't succeed. */
-enum class Platform { EVO, ORIGINAL_NBT }
+enum class Platform { EVO, ORIGINAL_NBT, MGU }
 
 /** How often [MainViewModel.checkUpdate] repeats itself in the background while the app is open. */
 private const val UPDATE_CHECK_INTERVAL_MS = 10 * 60 * 1000L
@@ -203,6 +203,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         screen = Screen.JJ_AA
     }
 
+    /** The MGU (iDrive 7/8) hub's own state - see mgu/McController.kt. */
+    val mc = com.nbtaad.editor.mgu.McController(ctx, viewModelScope, host = { detect.hu })
+
     /** Back from JjAaScreen: its own hub, not the EVO one. */
     fun backToHubNbt1() {
         screen = Screen.HUB_NBT1
@@ -243,14 +246,26 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 platformMessage = "Reading the head unit's bootloader id…"
                 val btld = PlatformCheck.readBtld(zgw)
+                val p = when (btld?.id) {
+                    PlatformCheck.BTLD_EVO -> Platform.EVO
+                    PlatformCheck.BTLD_ORIGINAL_NBT -> Platform.ORIGINAL_NBT
+                    PlatformCheck.BTLD_MGU -> Platform.MGU
+                    else -> null
+                }
                 if (btld == null) {
                     platformError = true
                     platformMessage = "The head unit did not answer that request, so the platform can't be " +
                         "told apart automatically. Pick which head unit you have below."
+                } else if (p == null) {
+                    platformError = true
+                    platformMessage = "Bootloader ${btld.idHex} is not one this app recognizes, so the platform " +
+                        "can't be told apart automatically. Pick which head unit you have below."
                 } else {
-                    val p = if (btld.id == PlatformCheck.BTLD_EVO) Platform.EVO else Platform.ORIGINAL_NBT
-                    platformMessage = "Bootloader ${btld.idHex}: " +
-                        if (p == Platform.EVO) "NBT EVO." else "the original NBT (not EVO)."
+                    platformMessage = "Bootloader ${btld.idHex}: " + when (p) {
+                        Platform.EVO -> "NBT EVO."
+                        Platform.ORIGINAL_NBT -> "the original NBT."
+                        Platform.MGU -> "iDrive 7/8 (MGU)."
+                    }
                     applyPlatform(p)
                 }
             } catch (e: Exception) {
@@ -273,7 +288,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** The result (read automatically or picked by hand) opens that platform's own hub. */
     private fun applyPlatform(p: Platform) {
         platform = p
-        screen = if (p == Platform.EVO) Screen.HUB else Screen.HUB_NBT1
+        screen = when (p) {
+            Platform.EVO -> Screen.HUB
+            Platform.ORIGINAL_NBT -> Screen.HUB_NBT1
+            Platform.MGU -> Screen.HUB_MGU
+        }
     }
 
     /** "Switch platform": back to the platform check, whether it misread the car or a different one is

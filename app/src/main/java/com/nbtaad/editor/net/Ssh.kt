@@ -24,16 +24,25 @@ object SshConfig {
 /** The person stopped a long read. */
 class SshCancelled : IOException("Stopped")
 
-class SshSession(host: String, password: String = SshConfig.PASSWORD) : AutoCloseable {
+class SshSession(
+    host: String,
+    password: String = SshConfig.PASSWORD,
+    /** Overrides the login name; MGU units log in as root too, but a future unit might not. */
+    user: String = SshConfig.USER,
+    port: Int = SshConfig.PORT,
+    /** A PEM private key to log in with instead of [password] (MGU's root SSH is key-only - see Mgu.kt). */
+    privateKey: ByteArray? = null,
+) : AutoCloseable {
     private val session: Session
 
     init {
         val jsch = JSch()
-        session = jsch.getSession(SshConfig.USER, host, SshConfig.PORT)
-        session.setPassword(password)
+        if (privateKey != null) jsch.addIdentity("car", privateKey, null, null)
+        session = jsch.getSession(user, host, port)
+        if (privateKey == null) session.setPassword(password)
         val cfg = Properties()
         cfg["StrictHostKeyChecking"] = "no"
-        cfg["PreferredAuthentications"] = "password,keyboard-interactive"
+        cfg["PreferredAuthentications"] = if (privateKey != null) "publickey" else "password,keyboard-interactive"
         // The head unit runs a very old OpenSSH (QNX): allow the legacy algorithms JSch disables by default.
         cfg["server_host_key"] = "ssh-dss,ssh-rsa,rsa-sha2-256,rsa-sha2-512,ecdsa-sha2-nistp256,ssh-ed25519"
         cfg["kex"] = "diffie-hellman-group-exchange-sha256,diffie-hellman-group-exchange-sha1," +

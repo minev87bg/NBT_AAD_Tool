@@ -42,8 +42,8 @@ fun PlatformScreen(vm: MainViewModel) {
         Text("NBT AAD Tool", fontSize = 24.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
         Spacer(Modifier.height(4.dp))
         Text(
-            "Works for both NBT EVO (2015.09+) and the older, original NBT (2012/07-2015/09) - from different " +
-                "projects, since the two head units are not compatible with each other.",
+            "Works for NBT EVO (2015.09+), the older, original NBT (2012/07-2015/09), and - newly, early support - " +
+                "iDrive 7/8 (MGU) - from different projects, since these head units are not compatible with each other.",
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
@@ -88,6 +88,12 @@ fun PlatformScreen(vm: MainViewModel) {
                         modifier = Modifier.weight(1f),
                     ) { Text("Original NBT", fontSize = 13.sp) }
                 }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { vm.choosePlatform(Platform.MGU) },
+                    enabled = !vm.platformBusy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("iDrive 7/8 (MGU)", fontSize = 13.sp) }
             }
         }
         Spacer(Modifier.height(24.dp))
