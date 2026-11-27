@@ -123,7 +123,7 @@ fun App(vm: MainViewModel) {
                 Screen.ADDONS -> AddOnsTheme { AddOnsScreen(vm) }
                 Screen.PREPARE -> PrepareTheme { PrepareScreen(vm) }
                 Screen.SIGNING_TOOLS -> PrepareTheme { SigningToolsScreen(vm) }
-                Screen.JJ_AA -> AddOnsTheme { JjAaScreen(vm) }
+                Screen.JJ_AA -> JjAaTheme { JjAaScreen(vm) }
             }
             ThemeToggle(vm, Modifier.align(Alignment.TopStart).padding(4.dp))
         }

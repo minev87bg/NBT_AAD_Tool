@@ -539,7 +539,7 @@ private fun ShelfDialog(inst: InstallController, items: List<ShelfItem>, onDismi
 }
 
 @Composable
-private fun StatusDot(color: Color) {
+internal fun StatusDot(color: Color) {
     Box(Modifier.size(10.dp).clip(CircleShape).background(color))
 }
 
@@ -1243,7 +1243,7 @@ internal fun ResetButton(vm: MainViewModel, modifier: Modifier = Modifier) {
 
 /** The log as a small console: dark, monospace, scrolled to the newest line. */
 @Composable
-private fun LogConsole(lines: List<RunLine>, maxHeight: Dp) {
+internal fun LogConsole(lines: List<RunLine>, maxHeight: Dp) {
     val scroll = rememberScrollState()
     LaunchedEffect(lines.size) { scroll.animateScrollTo(scroll.maxValue) }
     Column(

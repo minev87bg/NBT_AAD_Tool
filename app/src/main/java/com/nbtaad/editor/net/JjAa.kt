@@ -2,8 +2,10 @@ package com.nbtaad.editor.net
 
 import android.content.Context
 import com.nbtaad.editor.install.AssetInfo
+import com.nbtaad.editor.install.Level
 import com.nbtaad.editor.install.ReleaseInfo
 import com.nbtaad.editor.install.ReleasesApi
+import com.nbtaad.editor.install.Reporter
 import com.nbtaad.editor.log.AppLog
 import com.nbtaad.editor.update.UpdateLogic
 import java.io.ByteArrayInputStream
@@ -180,6 +182,26 @@ object JjAa {
 
     class PreflightError(message: String) : IOException(message)
 
+    /** What is on the head unit now: the version this app (or the project's own installer) last wrote to VERSION,
+     * and whether the two folders this package uses are there. Nothing here needs the manifest - it is a plain
+     * read, safe to do any time. */
+    class JjUnitStatus(val version: String?, val rtDirExists: Boolean, val pluginDirExists: Boolean, val disabled: Boolean) {
+        val looksInstalled: Boolean get() = rtDirExists || pluginDirExists
+    }
+
+    /** Reads what is on the head unit now - no preflight, no write: safe to call at any time, even before deciding
+     * to install anything. */
+    fun status(host: String, password: String): JjUnitStatus =
+        SshSession(host, password).use { ssh ->
+            val rtExists = ssh.exec("test -d '$RT_DIR'").exit == 0
+            val pluginExists = ssh.exec("test -d '$PLUGIN_DIR'").exit == 0
+            val version = if (rtExists) {
+                ssh.exec("cat '$RT_DIR/VERSION'").takeIf { it.exit == 0 }?.text?.trim()?.ifEmpty { null }
+            } else null
+            val disabled = rtExists && ssh.exec("test -f '$RT_DIR/disabled'").exit == 0
+            JjUnitStatus(version, rtExists, pluginExists, disabled)
+        }
+
     private class Check(val cmd: String, val what: String, val required: Boolean)
 
     /** Confirms this is really the original NBT (and not NBT Evo, or anything else) before a single file is
@@ -239,43 +261,50 @@ object JjAa {
         host: String,
         password: String,
         payload: Payload,
-        rep: (String) -> Unit,
+        rep: Reporter,
         findGateway: () -> String? = { null },
     ): Outcome {
-        rep("Logging in to $host…")
+        rep.say("Logging in to $host…", Level.INFO)
         return SshSession(host, password).use { ssh ->
-            rep("Logged in.")
-            preflight(ssh, rep)
-            rep("Package ${payload.manifest.version}, ${payload.manifest.entries.size} files")
+            rep.say("Logged in.", Level.INFO)
+            preflight(ssh) { line -> rep.say(line, if (line.startsWith("  warning")) Level.WARN else Level.INFO) }
+            rep.say("Package ${payload.manifest.version}, ${payload.manifest.entries.size} files", Level.INFO)
             ssh.exec("chmod 700 '$RT_DIR'")
             val hadDecoder = ssh.exec("test -f '$RT_DIR/nbt_decoder'").exit == 0
             // the plugin's manifest goes last: the HMI must never see a half-written package
             val ordered = payload.manifest.entries.sortedBy { it.target.endsWith(".manifest") }
+            val total = ordered.sumOf { it.size }.coerceAtLeast(1L)
+            var done = 0L
             for (entry in ordered) {
                 val data = payload.files.getValue(entry.source)
-                rep("  write ${entry.target.substringAfterLast('/')} (${data.size} bytes)")
+                val name = entry.target.substringAfterLast('/')
+                rep.say("  write $name (${data.size} bytes)", Level.INFO)
                 ssh.putAtomic(data, entry.target, entry.mode)
+                done += data.size
+                rep.progress(name, done, total)
             }
             val dpi = "$RT_DIR/vid.dpi"
             ssh.exec("test -f '$dpi' || echo 100 > '$dpi'")
             ssh.exec("rm -f '$RT_DIR/disabled'")
             if (ordered.any { it.target.endsWith("/iap.sh") }) {
                 ssh.exec("rm -f '$RT_DIR/iap.off'")
-                rep(
+                rep.say(
                     "Sound: Android Auto shows up under Multimedia as Apple device \"Android Auto\" (title, cover, " +
-                        "skip). Plug the phone in by USB, then connect it by Bluetooth."
+                        "skip). Plug the phone in by USB, then connect it by Bluetooth.",
+                    Level.INFO,
                 )
             }
             val hasDecoder = ordered.any { it.target.endsWith("/nbt_decoder") }
             if (hasDecoder) {
                 if (!hadDecoder) ssh.exec("touch '$RT_DIR/decoder.hw'")
-                rep(
+                rep.say(
                     "Picture: 1280 pixels wide through the car's own hardware decoder. Switching to software is a " +
-                        "\"Decoder\" button on the Android Auto / CarPlay page; it applies after an NBT restart."
+                        "\"Decoder\" button on the Android Auto / CarPlay page; it applies after an NBT restart.",
+                    Level.INFO,
                 )
             }
             if (ordered.any { it.target.endsWith("/nbt_carplay") }) {
-                rep("CarPlay: plug the iPhone in by USB and confirm \"Trust\".")
+                rep.say("CarPlay: plug the iPhone in by USB and confirm \"Trust\".", Level.INFO)
             }
             var gatewayNote: String? = null
             if (ordered.any { it.target.endsWith("/nbt_reset") }) {
@@ -290,25 +319,26 @@ object JjAa {
                         "The car's gateway was not found - \"Restart NBT\" on the head unit's page will not work " +
                             "until its address is set (the installer's own Gateway/Search can also do that)."
                     }
+                    rep.say(gatewayNote, if (gw != null) Level.OK else Level.WARN)
                 }
             }
             ssh.exec("echo '${payload.manifest.version}' > '$RT_DIR/VERSION'")
-            rep("Done: now restart iDrive, then Multimedia -> Android Auto / CarPlay.")
+            rep.say("Done: now restart iDrive, then Multimedia -> Android Auto / CarPlay.", Level.OK)
             Outcome(payload.manifest.version, ordered.size, gatewayNote)
         }
     }
 
     /** Removes exactly the two folders this package writes, after stopping its processes - nbt_aa_installer.py's
      * own uninstall(). Returns which of the two directories, if any, could not be removed (empty: both gone). */
-    fun uninstall(host: String, password: String, rep: (String) -> Unit): List<String> {
-        rep("Logging in to $host…")
+    fun uninstall(host: String, password: String, rep: Reporter): List<String> {
+        rep.say("Logging in to $host…", Level.INFO)
         return SshSession(host, password).use { ssh ->
-            rep("Logged in.")
+            rep.say("Logged in.", Level.INFO)
             if (ssh.exec("test -d '/var/opt/hmi/data/rw'").exit != 0) {
                 throw IOException("HMI data directory not found - this does not look like the original NBT.")
             }
             ssh.exec("test -d '$RT_DIR' && touch '$RT_DIR/disabled'")
-            rep("Stopping the Android Auto service…")
+            rep.say("Stopping the Android Auto service…", Level.INFO)
             ssh.exec("slay -f -Q -s TERM native_service")
             ssh.exec("slay -f -Q -s TERM nbt_cluster")
             Thread.sleep(3000)
@@ -319,7 +349,7 @@ object JjAa {
             for (dir in listOf(PLUGIN_DIR, RT_DIR)) {
                 ssh.exec("rm -r '$dir'")
                 val still = ssh.exec("test -e '$dir'").exit == 0
-                rep("  ${if (still) "NOT removed" else "removed"} $dir")
+                rep.say("  ${if (still) "NOT removed" else "removed"} $dir", if (still) Level.WARN else Level.OK)
                 if (still) notRemoved += dir
             }
             notRemoved
