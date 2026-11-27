@@ -413,6 +413,15 @@ private fun StarterCfgResearchSection(vm: MainViewModel) {
             fontSize = 11.sp, color = muted, modifier = Modifier.padding(top = 2.dp),
         )
     }
+    // vm.scCurrentTag's own note, when there's a connected car to have one - a build-specific lead,
+    // not a substitute for an actual library entry (see CommunityVersionNotes' own doc comment).
+    vm.scCurrentTag?.let { com.nbtaad.editor.net.CommunityVersionNotes.note(it) }?.let { note ->
+        Text(note, fontSize = 11.sp, color = muted, modifier = Modifier.padding(top = 2.dp))
+    }
+    Text(
+        com.nbtaad.editor.net.CommunityVersionNotes.SUMMARY,
+        fontSize = 10.sp, color = muted, modifier = Modifier.padding(top = 6.dp),
+    )
     if (vm.scCurrentHasStock) {
         Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Button(onClick = { vm.sshUnlockChecked = false; vm.confirmSshUnlock = true }, enabled = !vm.sshFlashBusy) {
