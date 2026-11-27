@@ -175,7 +175,21 @@ class InstallController(
         releasesMessage = "Loading the releases from GitHub…"
         scope.launch(Dispatchers.IO) {
             try {
-                val all = ReleasesApi.list(ctx).filter { ReleaseLogic.installable(it) }
+                val listed = ReleasesApi.list(ctx)
+                // The project's rolling "Installer" tag is reused release after release (see ReleasesApi.releaseByTag),
+                // so the plain list above can leave it far from the top - or off this page entirely - even when it is
+                // the newest thing published. Fetched by its known tag name and merged in, so it's never missed.
+                val rolling = try {
+                    ReleasesApi.releaseByTag(ctx, ReleaseLogic.OWNER, ReleaseLogic.REPO, ReleaseLogic.ROLLING_TAG)
+                } catch (e: Exception) {
+                    AppLog.w("Releases", "Fetching the rolling Installer release failed: ${e.javaClass.simpleName}: ${e.message}")
+                    null
+                }
+                // Shown (and matched against what's installed) by its version, "v1.9.120" - not the rolling tag name
+                // itself, which never changes and would read as its own strange, perpetual "newest release".
+                val relabeled = rolling?.let { it.copy(tag = it.title.ifBlank { it.tag }) }
+                val merged = if (relabeled != null && listed.none { it.tag == relabeled.tag }) listed + relabeled else listed
+                val all = ReleaseLogic.newestFirst(merged).filter { ReleaseLogic.installable(it) }
                 releases = all
                 releasesMessage = if (all.isEmpty()) "No release with installable files was found." else ""
             } catch (e: Exception) {
