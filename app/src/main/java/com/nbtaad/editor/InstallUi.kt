@@ -79,7 +79,10 @@ fun HubScreen(vm: MainViewModel) {
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(28.dp))
+        TextButton(onClick = { vm.switchPlatform() }, contentPadding = PaddingValues(0.dp)) {
+            Text("Not NBT EVO? Switch platform", fontSize = 11.sp)
+        }
+        Spacer(Modifier.height(20.dp))
         HeroTile(
             title = "Prepare headunit",
             subtitle = if (vm.detect.ssh) "SSH is open" else "Open its SSH",
@@ -94,16 +97,13 @@ fun HubScreen(vm: MainViewModel) {
         ) { vm.choosePrepare() }
         Spacer(Modifier.height(12.dp))
         HeroTile(
-            title = "Install Android Auto",
-            subtitle = "NBT EVO or the older, original NBT" + vm.inst.mainShelf.count { it.installedAt == null }.let {
+            title = "Install / update",
+            subtitle = "NBT Android Auto" + vm.inst.mainShelf.count { it.installedAt == null }.let {
                 if (it > 0) " · $it saved file${if (it == 1) "" else "s"} waiting" else ""
             },
-            info = "Install or update Android Auto on the head unit - NBT EVO (2015.09+, Sq00ky's NBT-AAD) or the " +
-                "older, original NBT (2012/07-2015/09, JayJay3071's package) - from a GitHub release or a file on " +
-                "this phone. CHECK PLATFORM at the top tells the two apart by the head unit's own bootloader id; " +
-                "if that can't be read, pick by hand instead. For NBT EVO, the previous version stays on the head " +
-                "unit and one button goes back to it; the original NBT's own package has no such backup.",
-        ) { vm.chooseInstallHub() }
+            info = "Install or update the Android Auto daemon and plugin on the head unit, from Sq00ky's Releases page " +
+                "or from a file on this phone. The previous version stays on the head unit and one button goes back to it.",
+        ) { vm.chooseInstall() }
         Spacer(Modifier.height(12.dp))
         WideTile(
             icon = HubIcon.SETTINGS,
@@ -351,9 +351,9 @@ internal fun InstallTheme(content: @Composable () -> Unit) {
 }
 
 @Composable
-fun InstallScreen(vm: MainViewModel, embedded: Boolean = false) {
+fun InstallScreen(vm: MainViewModel) {
     val inst = vm.inst
-    if (!embedded) BackHandler { if (vm.fromWizard) vm.backToWizard() else vm.backToHub() }
+    BackHandler { if (vm.fromWizard) vm.backToWizard() else vm.backToHub() }
     val list = rememberLazyListState()
     LaunchedEffect(inst.view) { if (inst.view != null) list.animateScrollToItem(0) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -363,21 +363,17 @@ fun InstallScreen(vm: MainViewModel, embedded: Boolean = false) {
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), state = list) {
         item(key = "__head") {
             Column(Modifier.fillMaxWidth()) {
-                if (!embedded) {
-                    Spacer(Modifier.height(52.dp))
-                    // only when this page was opened from the wizard
-                    if (vm.fromWizard) BackToWizardButton(vm)
-                    Text("Install / update NBT Android Auto", fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "Install a release or a build. Nothing is thrown away: the version that was on the head unit " +
-                            "stays there, and one button goes back to it. Your settings (nbt-aad.env) are not touched.",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    Spacer(Modifier.height(4.dp))
-                }
+                Spacer(Modifier.height(52.dp))
+                // only when this page was opened from the wizard
+                if (vm.fromWizard) BackToWizardButton(vm)
+                Text("Install / update NBT Android Auto", fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Install a release or a build. Nothing is thrown away: the version that was on the head unit " +
+                        "stays there, and one button goes back to it. Your settings (nbt-aad.env) are not touched.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 UnitCard(inst, onChange = { vm.chooseSettings() })
             }
         }

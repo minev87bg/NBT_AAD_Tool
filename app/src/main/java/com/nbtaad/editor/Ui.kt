@@ -112,7 +112,9 @@ fun App(vm: MainViewModel) {
     Surface(Modifier.fillMaxSize().safeDrawingPadding()) {
         Box(Modifier.fillMaxSize()) {
             when (vm.screen) {
+                Screen.PLATFORM -> PlatformScreen(vm)
                 Screen.HUB -> HubScreen(vm)
+                Screen.HUB_NBT1 -> JjAaTheme { HubNbt1Screen(vm) }
                 Screen.OPTIONS -> SettingsTheme { OptionsScreen(vm) }
                 Screen.INSTALL -> InstallTheme { InstallScreen(vm) }
                 Screen.EXPERIMENTAL -> ExperimentalScreen(vm)
@@ -124,7 +126,6 @@ fun App(vm: MainViewModel) {
                 Screen.PREPARE -> PrepareTheme { PrepareScreen(vm) }
                 Screen.SIGNING_TOOLS -> PrepareTheme { SigningToolsScreen(vm) }
                 Screen.JJ_AA -> JjAaTheme { JjAaScreen(vm) }
-                Screen.INSTALL_HUB -> InstallHubScreen(vm)
             }
             ThemeToggle(vm, Modifier.align(Alignment.TopStart).padding(4.dp))
         }

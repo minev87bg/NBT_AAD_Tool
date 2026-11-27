@@ -65,7 +65,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.coroutines.coroutineContext
 
-enum class Screen { HUB, OPTIONS, INSTALL, EXPERIMENTAL, CONTRIBUTE, WIZARD, TILE, MENULOOK, ADDONS, PREPARE, SIGNING_TOOLS, JJ_AA, INSTALL_HUB }
+enum class Screen { PLATFORM, HUB, HUB_NBT1, OPTIONS, INSTALL, EXPERIMENTAL, CONTRIBUTE, WIZARD, TILE, MENULOOK, ADDONS, PREPARE, SIGNING_TOOLS, JJ_AA }
 enum class UpdatePhase { IDLE, CHECKING, CURRENT, AVAILABLE, DOWNLOADING, FAILED }
 enum class SaveStatus { RUNNING, OK, FAIL }
 enum class LineKind { INFO, OK, ERROR }
@@ -118,7 +118,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val storage = Storage(ctx)
     private val themePrefs = ThemePrefs(ctx)
 
-    private var screenState by mutableStateOf(Screen.HUB)
+    private var screenState by mutableStateOf(Screen.PLATFORM)
     var screen: Screen
         get() = screenState
         set(v) {
@@ -197,28 +197,30 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     val jjAa = com.nbtaad.editor.install.JjAaController(ctx, viewModelScope, host = { detect.hu })
 
+    /** "Install Android Auto / CarPlay", the original-NBT hub's one tile. */
+    fun chooseJjAa() {
+        jjAa.visit()
+        screen = Screen.JJ_AA
+    }
+
+    /** Back from JjAaScreen: its own hub, not the EVO one. */
+    fun backToHubNbt1() {
+        screen = Screen.HUB_NBT1
+    }
+
     // =====================================================================
-    // Install Android Auto: one hub tile for both head unit generations.
-    // "Check Platform" tells them apart by the live bootloader id (see net/PlatformCheck.kt); if that
-    // read doesn't succeed (no gateway, no answer), the person picks by hand instead. Either way, once
-    // known, the rest of the page is exactly today's Install or NBT Android Auto (original NBT) screen -
-    // their own controllers (inst/jjAa above) are untouched by this.
+    // Platform: the app's own front door (Screen.PLATFORM, the initial screen). "Check Platform" tells
+    // NBT EVO apart from the older, original NBT by the live bootloader id (see net/PlatformCheck.kt); if
+    // that read doesn't succeed (no gateway, no answer), the person picks by hand instead. Either way,
+    // the result decides which hub opens: Screen.HUB (today's full hub - Prepare headunit, Install,
+    // Change a setting, Add-ons and the community page are all EVO/NBT-AAD-specific, so they stay exactly
+    // as they are) or Screen.HUB_NBT1 (a small hub of its own, with just Install Android Auto / CarPlay).
     // =====================================================================
 
     var platform by mutableStateOf<Platform?>(null); private set
     var platformBusy by mutableStateOf(false); private set
     var platformMessage by mutableStateOf(""); private set
     var platformError by mutableStateOf(false); private set
-
-    /** "Install Android Auto": the one hub tile for both generations. */
-    fun chooseInstallHub() {
-        screen = Screen.INSTALL_HUB
-        when (platform) {
-            Platform.EVO -> inst.open()
-            Platform.ORIGINAL_NBT -> jjAa.visit()
-            null -> if (!platformBusy) checkPlatform()
-        }
-    }
 
     /** CHECK PLATFORM: reads the head unit's live bootloader id over the car's gateway. Read-only, no
      * SecurityAccess - the same kind of UDS call this app already makes for the VIN and the coding
@@ -268,19 +270,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         applyPlatform(p)
     }
 
+    /** The result (read automatically or picked by hand) opens that platform's own hub. */
     private fun applyPlatform(p: Platform) {
         platform = p
-        when (p) {
-            Platform.EVO -> inst.open()
-            Platform.ORIGINAL_NBT -> jjAa.visit()
-        }
+        screen = if (p == Platform.EVO) Screen.HUB else Screen.HUB_NBT1
     }
 
-    /** "Not this?": the detected/picked platform turned out wrong (a different car this session, say). */
-    fun resetPlatform() {
+    /** "Switch platform": back to the platform check, whether it misread the car or a different one is
+     * now connected. Nothing about the platform is remembered past this. */
+    fun switchPlatform() {
         platform = null
         platformMessage = ""
         platformError = false
+        screen = Screen.PLATFORM
     }
 
     /**
@@ -1519,6 +1521,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** "Change a setting": the unfinished file of the last session is offered first, if there is one. */
     fun chooseSettings() {
         if (storage.hasDraft(carId)) askDraft = true else openOptions(useDraft = false)
+    }
+
+    /** "Install / update": releases, files from the phone, install and the way back. */
+    fun chooseInstall() {
+        inst.open()
+        screen = Screen.INSTALL
     }
 
     /**
