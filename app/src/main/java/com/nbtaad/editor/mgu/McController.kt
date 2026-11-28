@@ -12,6 +12,7 @@ import com.nbtaad.editor.net.MguDetector
 import com.nbtaad.editor.net.NetworkBinder
 import com.nbtaad.editor.net.SshSession
 import com.nbtaad.editor.net.friendlyError
+import com.nbtaad.editor.net.parseHostPort
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -76,8 +77,12 @@ class McController(
                     error = true
                     return@launch
                 }
+                // "address:port" carries its own port - for a VPN/ENET-relay setup (ZeroTier, FlashXCode,
+                // Turbocode and the like) that reaches the head unit through a remapped port; a plain address
+                // still gets the usual root SSH port.
+                val (h, port) = parseHostPort(target)
                 message = "Logging in to $target…"
-                SshSession(target, user = MguConfig.USER, privateKey = pem.toByteArray(Charsets.UTF_8)).use { ssh ->
+                SshSession(h, user = MguConfig.USER, port = port, privateKey = pem.toByteArray(Charsets.UTF_8)).use { ssh ->
                     val probe = ssh.exec("test -x ${MguConfig.DEPLOY_SH} && echo yes || echo no")
                     message = if (probe.text.trim() == "yes") {
                         val r = ssh.exec("${MguConfig.DEPLOY_SH} status --read-only", timeoutMs = 15000)

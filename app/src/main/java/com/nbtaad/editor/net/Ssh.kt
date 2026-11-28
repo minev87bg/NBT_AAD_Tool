@@ -21,6 +21,23 @@ object SshConfig {
     const val PORT = 22
 }
 
+/**
+ * Splits a hand-typed address into (host, port). Plain "host" gets [defaultPort]; "host:port" carries its own -
+ * for someone relaying ENET/SSH over a VPN through a tool that remaps the port (a custom ZeroTier/Tailscale setup,
+ * an ENET-over-network relay such as FlashXCode or Turbocode), where the head unit's own fixed port rarely survives
+ * the relay unchanged. A malformed or out-of-range port after the colon is dropped rather than carried into the
+ * host (the unterminated "host:garbage" string that caused a stray UnknownHostException before this existed) -
+ * [defaultPort] is used instead and only the part before the colon is kept as the host.
+ */
+fun parseHostPort(input: String, defaultPort: Int = SshConfig.PORT): Pair<String, Int> {
+    val trimmed = input.trim()
+    val i = trimmed.lastIndexOf(':')
+    if (i <= 0) return trimmed to defaultPort
+    val host = trimmed.substring(0, i)
+    val port = trimmed.substring(i + 1).toIntOrNull()?.takeIf { it in 1..65535 }
+    return host to (port ?: defaultPort)
+}
+
 /** The person stopped a long read. */
 class SshCancelled : IOException("Stopped")
 

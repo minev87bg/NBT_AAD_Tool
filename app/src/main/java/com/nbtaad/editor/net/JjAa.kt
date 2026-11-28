@@ -191,8 +191,8 @@ object JjAa {
 
     /** Reads what is on the head unit now - no preflight, no write: safe to call at any time, even before deciding
      * to install anything. */
-    fun status(host: String, password: String): JjUnitStatus =
-        SshSession(host, password).use { ssh ->
+    fun status(host: String, password: String, port: Int = SshConfig.PORT): JjUnitStatus =
+        SshSession(host, password, port = port).use { ssh ->
             val rtExists = ssh.exec("test -d '$RT_DIR'").exit == 0
             val pluginExists = ssh.exec("test -d '$PLUGIN_DIR'").exit == 0
             val version = if (rtExists) {
@@ -252,8 +252,9 @@ object JjAa {
     class Outcome(val version: String, val filesWritten: Int, val gatewayNote: String?)
 
     /**
-     * Installs or updates the package on the head unit at [host] (plain SSH, port 22, user root - the password is
-     * asked for by the caller and passed in [password], never stored). [findGateway] is called only if the
+     * Installs or updates the package on the head unit at [host] (plain SSH, user root - the password is
+     * asked for by the caller and passed in [password], never stored; [port] is 22 unless the caller's address
+     * carried its own, e.g. a VPN/ENET-relay setup that remaps it). [findGateway] is called only if the
      * payload includes nbt_reset and no gateway is already stored on the head unit; a null result is not an
      * error - it only means the head unit's own "Restart NBT" page will say its gateway is not set yet.
      */
@@ -262,10 +263,11 @@ object JjAa {
         password: String,
         payload: Payload,
         rep: Reporter,
+        port: Int = SshConfig.PORT,
         findGateway: () -> String? = { null },
     ): Outcome {
-        rep.say("Logging in to $host…", Level.INFO)
-        return SshSession(host, password).use { ssh ->
+        rep.say("Logging in to $host${if (port != SshConfig.PORT) ":$port" else ""}…", Level.INFO)
+        return SshSession(host, password, port = port).use { ssh ->
             rep.say("Logged in.", Level.INFO)
             preflight(ssh) { line -> rep.say(line, if (line.startsWith("  warning")) Level.WARN else Level.INFO) }
             rep.say("Package ${payload.manifest.version}, ${payload.manifest.entries.size} files", Level.INFO)
@@ -330,9 +332,9 @@ object JjAa {
 
     /** Removes exactly the two folders this package writes, after stopping its processes - nbt_aa_installer.py's
      * own uninstall(). Returns which of the two directories, if any, could not be removed (empty: both gone). */
-    fun uninstall(host: String, password: String, rep: Reporter): List<String> {
-        rep.say("Logging in to $host…", Level.INFO)
-        return SshSession(host, password).use { ssh ->
+    fun uninstall(host: String, password: String, rep: Reporter, port: Int = SshConfig.PORT): List<String> {
+        rep.say("Logging in to $host${if (port != SshConfig.PORT) ":$port" else ""}…", Level.INFO)
+        return SshSession(host, password, port = port).use { ssh ->
             rep.say("Logged in.", Level.INFO)
             if (ssh.exec("test -d '/var/opt/hmi/data/rw'").exit != 0) {
                 throw IOException("HMI data directory not found - this does not look like the original NBT.")

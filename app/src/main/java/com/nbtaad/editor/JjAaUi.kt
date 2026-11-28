@@ -181,7 +181,7 @@ private fun JjUnitCard(inst: JjAaController) {
             OutlinedTextField(
                 value = inst.hostOverride,
                 onValueChange = { inst.hostOverride = it },
-                label = { Text("Head unit address") },
+                label = { Text("Head unit address (or address:port)") },
                 placeholder = { Text(inst.effectiveHost) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),

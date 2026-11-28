@@ -79,7 +79,7 @@ fun HubMguScreen(vm: MainViewModel) {
                 OutlinedTextField(
                     value = mc.hostOverride,
                     onValueChange = { mc.hostOverride = it },
-                    label = { Text("Head unit address") },
+                    label = { Text("Head unit address (or address:port)") },
                     placeholder = { Text("auto (hotspot or ENET)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),

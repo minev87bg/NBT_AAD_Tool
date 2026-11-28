@@ -11,6 +11,7 @@ import com.nbtaad.editor.net.JjAa
 import com.nbtaad.editor.net.Online
 import com.nbtaad.editor.net.SshConfig
 import com.nbtaad.editor.net.friendlyError
+import com.nbtaad.editor.net.parseHostPort
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -81,6 +82,11 @@ class JjAaController(
     var password by mutableStateOf(SshConfig.PASSWORD)
     var hostOverride by mutableStateOf("")
     val effectiveHost: String get() = hostOverride.trim().ifEmpty { host() ?: JjAa.DEFAULT_HOST }
+
+    /** [effectiveHost] split into an address and a port. A plain address gets the usual port 22; typing
+     * "address:port" (e.g. "10.76.88.65:2222") carries a custom one - for reaching the head unit through a
+     * VPN/ENET-relay setup (ZeroTier, FlashXCode, Turbocode and the like) that remaps the port it's reachable on. */
+    val effectiveHostPort: Pair<String, Int> get() = parseHostPort(effectiveHost)
 
     // dialogs and the job
     var askInstall by mutableStateOf(false)
@@ -273,11 +279,11 @@ class JjAaController(
         unitError = false
         unit = null
         unitMessage = "Looking at the head unit…"
-        val h = effectiveHost
+        val (h, port) = effectiveHostPort
         val pw = password
         scope.launch(Dispatchers.IO) {
             try {
-                unit = JjAa.status(h, pw)
+                unit = JjAa.status(h, pw, port)
                 unitMessage = ""
                 AppLog.i("JjAa", "Status: installed=${unit?.looksInstalled}, version=${unit?.version}")
             } catch (e: Exception) {
@@ -328,12 +334,12 @@ class JjAaController(
         if (!v.fromProject && !trusted) return
         askInstall = false
         job = RunState(RunKind.INSTALL, emptyList(), RunStatus.RUNNING)
-        val h = effectiveHost
+        val (h, port) = effectiveHostPort
         val pw = password
         AppLog.i("JjAa", "Install started: ${v.title} (${v.payload.manifest.version}), from ${v.source}")
         scope.launch(Dispatchers.IO) {
             try {
-                val out = JjAa.install(h, pw, v.payload, reporter(), findGateway = ::findGateway)
+                val out = JjAa.install(h, pw, v.payload, reporter(), port = port, findGateway = ::findGateway)
                 val headline = "Installed version ${out.version} (${out.filesWritten} files)."
                 finish(RunStatus.OK, headline, listOfNotNull(out.gatewayNote))
                 v.shelfId?.let {
@@ -364,12 +370,12 @@ class JjAaController(
         if (working) return
         askUninstall = false
         job = RunState(RunKind.UNINSTALL, emptyList(), RunStatus.RUNNING)
-        val h = effectiveHost
+        val (h, port) = effectiveHostPort
         val pw = password
         AppLog.i("JjAa", "Uninstall started")
         scope.launch(Dispatchers.IO) {
             try {
-                val notRemoved = JjAa.uninstall(h, pw, reporter())
+                val notRemoved = JjAa.uninstall(h, pw, reporter(), port)
                 val headline = if (notRemoved.isEmpty()) "Android Auto was removed from the head unit." else "Removed, but could not remove: ${notRemoved.joinToString(", ")}"
                 finish(if (notRemoved.isEmpty()) RunStatus.OK else RunStatus.FAIL, headline)
                 unit = null
